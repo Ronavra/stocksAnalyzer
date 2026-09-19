@@ -19,11 +19,18 @@ async def ingest(ticker: str):
 
     quote = await provider.quote(ticker)
     financials = await provider.financials(ticker)
+    try:
+        profile_result = await provider.profile(ticker)
+        profile_rows = profile_result.value or []
+        profile = profile_rows[0] if isinstance(profile_rows, list) and profile_rows else profile_rows
+    except Exception as exc:
+        print(f"Profile unavailable for {ticker}: {exc}")
+        profile = {}
     q = quote.value[0] if isinstance(quote.value, list) and quote.value else quote.value
     company_name = (q or {}).get("name") or ticker
 
     company = db.table("companies").upsert(
-        {"ticker": ticker, "name": company_name},
+        {"ticker": ticker, "name": company_name, "sector": profile.get("sector"), "industry": profile.get("industry")},
         on_conflict="ticker",
     ).execute()
     row = company.data[0]

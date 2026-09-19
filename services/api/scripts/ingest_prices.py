@@ -15,6 +15,7 @@ def parse_args():
  p.add_argument("--bootstrap-years",type=int,default=6)
  p.add_argument("--tickers",nargs="*")
  p.add_argument("--delay",type=float,default=8.5,help="Seconds between provider requests")
+ p.add_argument("--all",action="store_true",help="Process the full S&P 500 universe plus benchmark")
  return p.parse_args()
 
 args=parse_args()
@@ -25,7 +26,7 @@ if args.tickers:
 else:
  companies=companies[args.offset:args.offset+args.batch_size]
 
-print(f"Processing {len(companies)} companies (offset={args.offset}, batch_size={args.batch_size})")
+print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
 for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","twelvedata").order("price_date",desc=True).limit(1).execute().data or [])

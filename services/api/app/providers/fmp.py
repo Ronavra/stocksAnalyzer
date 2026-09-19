@@ -26,6 +26,10 @@ class FMPProvider(MarketDataProvider, FundamentalsProvider):
         data, url = await self._get("quote", symbol=ticker)
         return ProviderValue(data, Provenance("fmp", url, datetime.now(timezone.utc)))
 
+    async def profile(self, ticker: str) -> ProviderValue:
+        data, url = await self._get("profile", symbol=ticker)
+        return ProviderValue(data, Provenance("fmp", url, datetime.now(timezone.utc)))
+
     async def financials(self, ticker: str) -> ProviderValue:
         income, income_url = await self._get("income-statement", symbol=ticker)
         balance, _ = await self._get("balance-sheet-statement", symbol=ticker)

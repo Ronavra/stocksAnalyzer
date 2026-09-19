@@ -1,4 +1,4 @@
-import sys, asyncio, argparse
+import sys, asyncio, argparse, time
 from datetime import date, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -14,6 +14,7 @@ def parse_args():
  p.add_argument("--offset",type=int,default=0)
  p.add_argument("--bootstrap-years",type=int,default=6)
  p.add_argument("--tickers",nargs="*")
+ p.add_argument("--delay",type=float,default=8.5,help="Seconds between provider requests")
  return p.parse_args()
 
 args=parse_args()
@@ -25,12 +26,13 @@ else:
  companies=companies[args.offset:args.offset+args.batch_size]
 
 print(f"Processing {len(companies)} companies (offset={args.offset}, batch_size={args.batch_size})")
-for c in companies:
+for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","twelvedata").order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
   if start>end:
    print(c["ticker"],"price history already current"); continue
+  if idx>0 and args.delay>0: time.sleep(args.delay)
   result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end)))
   payload=[]
   for r in result.value:
@@ -42,6 +44,9 @@ for c in companies:
   print(c["ticker"],"price rows saved=",len(payload))
  except Exception as e:
   print(c["ticker"],"price history unavailable:",e)
+  if "HTTP 429" in str(e):
+   print("Rate limit reached. Stop this batch and rerun the SAME offset later; existing rows will be skipped incrementally.")
+   break
 
 if not args.tickers:
  next_offset=args.offset+len(companies)

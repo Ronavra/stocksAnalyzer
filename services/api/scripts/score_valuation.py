@@ -21,6 +21,11 @@ async def main():
                   .eq("period_type","annual").order("period_end",desc=True).limit(1).execute().data or [])
             if not rows: continue
             signals=derive(quote or {},rows[0]); value,coverage=score(signals)
+            db.table("valuation_snapshots").upsert({
+              "company_id":c["id"],"snapshot_date":today,"pe":signals.pe,
+              "price_to_fcf":signals.price_to_fcf,"fcf_yield":signals.fcf_yield,
+              "market_cap":signals.market_cap,"source":"fmp"
+            },on_conflict="company_id,snapshot_date,source").execute()
             db.table("research_snapshots").upsert({
               "company_id":c["id"],"as_of_date":today,"valuation_score":value,
               "valuation_coverage":coverage,"pe":signals.pe,"price_to_fcf":signals.price_to_fcf,

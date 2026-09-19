@@ -21,6 +21,10 @@ def fetch_all_prices(company_id):
         start+=page_size
     return rows
 
+benchmark=next((x for x in companies if x["ticker"]=="SPY"),None)
+spy_rows=fetch_all_prices(benchmark["id"]) if benchmark else []
+spy_by_date={r["price_date"]:i for i,r in enumerate(spy_rows)}
+
 for company in companies:
     rows=fetch_all_prices(company["id"])
     payload=[]
@@ -44,11 +48,24 @@ for company in companies:
         if i>=19 and volume is not None:
             vols=[float(rows[j]["volume"]) for j in range(i-19,i+1) if rows[j].get("volume") is not None]
             if vols and statistics.mean(vols)!=0: volume_ratio_20d=volume/statistics.mean(vols)
+        market_m5=market_m20=market_vol20=rel_m5=rel_m20=None
+        si=spy_by_date.get(r["price_date"])
+        if si is not None:
+            sclose=float(spy_rows[si]["close"])
+            market_m5=ret(float(spy_rows[si-5]["close"]),sclose) if si>=5 else None
+            market_m20=ret(float(spy_rows[si-20]["close"]),sclose) if si>=20 else None
+            if si>=20:
+                sd=[ret(float(spy_rows[j-1]["close"]),float(spy_rows[j]["close"])) for j in range(si-19,si+1)]
+                market_vol20=statistics.stdev(sd)*math.sqrt(252) if len(sd)>1 else None
+            rel_m5=m5-market_m5 if m5 is not None and market_m5 is not None else None
+            rel_m20=m20-market_m20 if m20 is not None and market_m20 is not None else None
         fwd=ret(close,float(rows[i+5]["close"])) if i+5<len(rows) else None
         payload.append({"company_id":company["id"],"feature_date":r["price_date"],"close":close,
           "return_1d":r1,"momentum_5d":m5,"momentum_20d":m20,"volatility_20d":vol20,
           "volume_change_5d":vchg,"range_pct":range_pct,"close_vs_sma20":close_vs_sma20,
-          "volume_ratio_20d":volume_ratio_20d,"forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
+          "volume_ratio_20d":volume_ratio_20d,"market_momentum_5d":market_m5,"market_momentum_20d":market_m20,
+          "market_volatility_20d":market_vol20,"relative_momentum_5d":rel_m5,"relative_momentum_20d":rel_m20,
+          "forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
     for i in range(0,len(payload),250):
         db.table("price_features").upsert(payload[i:i+250],on_conflict="company_id,feature_date").execute()
     labeled=sum(x["forward_return_5d"] is not None for x in payload)

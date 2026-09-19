@@ -48,6 +48,16 @@ for company in companies:
         if i>=19 and volume is not None:
             vols=[float(rows[j]["volume"]) for j in range(i-19,i+1) if rows[j].get("volume") is not None]
             if vols and statistics.mean(vols)!=0: volume_ratio_20d=volume/statistics.mean(vols)
+        window20=[float(rows[j]["close"]) for j in range(max(0,i-19),i+1)]
+        window60=[float(rows[j]["close"]) for j in range(max(0,i-59),i+1)]
+        high20=max(window20) if len(window20)>=20 else None
+        high60=max(window60) if len(window60)>=60 else None
+        support60=min(window60) if len(window60)>=60 else None
+        drawdown20=close/high20-1 if high20 else None
+        drawdown60=close/high60-1 if high60 else None
+        distance_support60=close/support60-1 if support60 else None
+        rebound20=high20/close-1 if high20 else None
+        rebound60=high60/close-1 if high60 else None
         market_m5=market_m20=market_vol20=rel_m5=rel_m20=None
         si=spy_by_date.get(r["price_date"])
         if si is not None:
@@ -65,6 +75,8 @@ for company in companies:
           "volume_change_5d":vchg,"range_pct":range_pct,"close_vs_sma20":close_vs_sma20,
           "volume_ratio_20d":volume_ratio_20d,"market_momentum_5d":market_m5,"market_momentum_20d":market_m20,
           "market_volatility_20d":market_vol20,"relative_momentum_5d":rel_m5,"relative_momentum_20d":rel_m20,
+          "drawdown_20d":drawdown20,"drawdown_60d":drawdown60,"distance_to_support_60d":distance_support60,
+          "rebound_potential_20d":rebound20,"rebound_potential_60d":rebound60,
           "forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
     for i in range(0,len(payload),250):
         db.table("price_features").upsert(payload[i:i+250],on_conflict="company_id,feature_date").execute()

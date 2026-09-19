@@ -20,9 +20,19 @@ def stats(rows):
     if not n:return (0,0,0)
     return n,sum(bool(r["forward_up_5d"]) for r in rows)/n,statistics.mean(float(r["forward_return_5d"]) for r in rows)
 
+def fetch_all_features(company_id):
+    rows=[]; page_size=1000; start=0
+    while True:
+        batch=(db.table("price_features").select("*").eq("company_id",company_id)
+               .not_.is_("forward_return_5d","null").order("feature_date")
+               .range(start,start+page_size-1).execute().data or [])
+        rows.extend(batch)
+        if len(batch)<page_size: break
+        start+=page_size
+    return rows
+
 for c in companies:
-    rows=(db.table("price_features").select("*").eq("company_id",c["id"])
-          .not_.is_("forward_return_5d","null").order("feature_date").limit(5000).execute().data or [])
+    rows=fetch_all_features(c["id"])
     cut=max(1,int(len(rows)*0.8)); train,test=rows[:cut],rows[cut:]
     print(f"\n{c['ticker']} total={len(rows)} train={len(train)} test={len(test)}")
     for label,part in [("TRAIN",train),("TEST",test)]:

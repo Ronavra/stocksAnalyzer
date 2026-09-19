@@ -9,7 +9,7 @@ from app.providers.fmp import FMPProvider
 
 db=get_supabase(); provider=FMPProvider()
 end=date.today()
-companies=db.table("companies").select("id,ticker").execute().data or []
+companies=db.table("companies").select("id,ticker,is_sp500,scoring_profile").or_("is_sp500.eq.true,scoring_profile.eq.benchmark").execute().data or []
 for c in companies:
     try:
         latest=(db.table("price_history").select("price_date").eq("company_id",c["id"])

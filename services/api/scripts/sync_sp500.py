@@ -27,9 +27,9 @@ def main():
         saved=db.table("companies").upsert(payload,on_conflict="ticker").execute().data or []
         if saved:
             cid=saved[0]["id"]; active.append(cid)
-            db.table("index_memberships").upsert({"company_id":cid,"index_name":"S&P 500","effective_from":today,
+            db.table("index_memberships").upsert({"company_id":cid,"index_code":"SP500","effective_from":today,
                 "source":"datasets/s-and-p-500-companies","source_url":SOURCE,"captured_at":today},
-                on_conflict="company_id,index_name,effective_from").execute()
+                on_conflict="company_id,index_code,effective_from").execute()
     # Do not deactivate other companies/benchmarks; only clear stale S&P membership flag.
     current=(db.table("companies").select("id").eq("is_sp500",True).execute().data or [])
     for c in current:

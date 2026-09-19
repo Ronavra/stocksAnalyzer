@@ -8,7 +8,7 @@ from app.db.client import get_supabase
 from app.providers.fmp import FMPProvider
 
 db=get_supabase(); provider=FMPProvider()
-end=date.today(); start=end-timedelta(days=400)
+end=date.today(); start=end-timedelta(days=365*6)
 companies=db.table("companies").select("id,ticker").execute().data or []
 for c in companies:
     try:

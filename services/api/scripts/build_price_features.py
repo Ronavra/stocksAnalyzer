@@ -11,7 +11,7 @@ def ret(a,b):
     return (b/a)-1 if a not in (None,0) and b is not None else None
 
 for company in companies:
-    rows=(db.table("price_history").select("price_date,close,volume").eq("company_id",company["id"])
+    rows=(db.table("price_history").select("price_date,open,high,low,close,volume").eq("company_id",company["id"])
           .order("price_date").execute().data or [])
     payload=[]
     for i,r in enumerate(rows):
@@ -27,10 +27,18 @@ for company in companies:
         if i>=5 and volume is not None:
             prev=[float(rows[j]["volume"]) for j in range(i-5,i) if rows[j].get("volume") is not None]
             if prev and statistics.mean(prev)!=0: vchg=volume/statistics.mean(prev)-1
+        range_pct=(float(r["high"])-float(r["low"]))/close if r.get("high") is not None and r.get("low") is not None and close else None
+        sma20=statistics.mean(float(rows[j]["close"]) for j in range(i-19,i+1)) if i>=19 else None
+        close_vs_sma20=close/sma20-1 if sma20 else None
+        volume_ratio_20d=None
+        if i>=19 and volume is not None:
+            vols=[float(rows[j]["volume"]) for j in range(i-19,i+1) if rows[j].get("volume") is not None]
+            if vols and statistics.mean(vols)!=0: volume_ratio_20d=volume/statistics.mean(vols)
         fwd=ret(close,float(rows[i+5]["close"])) if i+5<len(rows) else None
         payload.append({"company_id":company["id"],"feature_date":r["price_date"],"close":close,
           "return_1d":r1,"momentum_5d":m5,"momentum_20d":m20,"volatility_20d":vol20,
-          "volume_change_5d":vchg,"forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
+          "volume_change_5d":vchg,"range_pct":range_pct,"close_vs_sma20":close_vs_sma20,
+          "volume_ratio_20d":volume_ratio_20d,"forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
     for i in range(0,len(payload),250):
         db.table("price_features").upsert(payload[i:i+250],on_conflict="company_id,feature_date").execute()
     labeled=sum(x["forward_return_5d"] is not None for x in payload)

@@ -30,6 +30,13 @@ for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","twelvedata").order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
+  # Daily bars only: if we already have today's bar, or the latest bar is within
+  # the normal weekend/market-close gap, avoid sending an empty date range that
+  # Twelve Data rejects with HTTP 400.
+  if latest:
+   latest_date=date.fromisoformat(latest[0]["price_date"])
+   if latest_date>=end or (end-latest_date).days<=3:
+    print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
   if idx>0 and args.delay>0: time.sleep(args.delay)

@@ -1,4 +1,5 @@
 import sys
+import asyncio
 from datetime import date, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -11,7 +12,8 @@ end=date.today(); start=end-timedelta(days=400)
 companies=db.table("companies").select("id,ticker").execute().data or []
 for c in companies:
     try:
-        rows=provider.historical_prices(c["ticker"],str(start),str(end))
+        result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end)))
+        rows=result.value
         saved=0
         for r in rows:
             d=r.get("date")

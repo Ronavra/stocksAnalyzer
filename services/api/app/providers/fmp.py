@@ -40,3 +40,8 @@ class FMPProvider(MarketDataProvider, FundamentalsProvider):
     async def analyst_estimates(self, ticker: str, period: str = "annual") -> ProviderValue:
         data, url = await self._get("analyst-estimates", symbol=ticker, period=period, page=0, limit=10)
         return ProviderValue(data, Provenance("fmp", url, datetime.now(timezone.utc)))
+
+    def historical_prices(self, ticker: str, from_date: str, to_date: str):
+        data = self._get("historical-price-eod/full", {"symbol": ticker, "from": from_date, "to": to_date})
+        rows = data.get("historical", data) if isinstance(data, dict) else data
+        return rows or []

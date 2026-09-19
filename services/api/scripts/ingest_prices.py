@@ -4,9 +4,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 API_DIR=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
-from app.providers.fmp import FMPProvider
+from app.providers.twelvedata import TwelveDataProvider
 
-db=get_supabase(); provider=FMPProvider(); end=date.today()
+db=get_supabase(); provider=TwelveDataProvider(); end=date.today()
 
 def parse_args():
  p=argparse.ArgumentParser(description="Incrementally ingest S&P 500 price history in resumable batches")
@@ -27,7 +27,7 @@ else:
 print(f"Processing {len(companies)} companies (offset={args.offset}, batch_size={args.batch_size})")
 for c in companies:
  try:
-  latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","fmp").order("price_date",desc=True).limit(1).execute().data or [])
+  latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","twelvedata").order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
   if start>end:
    print(c["ticker"],"price history already current"); continue
@@ -36,7 +36,7 @@ for c in companies:
   for r in result.value:
    d=r.get("date"); close=r.get("close")
    if not d or close is None: continue
-   payload.append({"company_id":c["id"],"price_date":d,"open":r.get("open"),"high":r.get("high"),"low":r.get("low"),"close":close,"volume":r.get("volume"),"source":"fmp"})
+   payload.append({"company_id":c["id"],"price_date":d,"open":r.get("open"),"high":r.get("high"),"low":r.get("low"),"close":close,"volume":r.get("volume"),"source":"twelvedata"})
   for i in range(0,len(payload),250):
    db.table("price_history").upsert(payload[i:i+250],on_conflict="company_id,price_date,source").execute()
   print(c["ticker"],"price rows saved=",len(payload))

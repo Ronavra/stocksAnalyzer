@@ -1,24 +1,17 @@
 export type Candidate = {
-  ticker:string; company:string; sector:string; score:number; signal:string; catalyst:string;
-  scores:{fundamentals:number;valuation:number;earnings:number;momentum:number;news:number;catalysts:number};
-  what_changed:string; market_assumption:string;
+  ticker:string; company:string; sector:string|null; signal:string;
+  score:number|null; coverage:number|null; catalyst:string|null;
+  fundamentals:number|null; valuation:number|null; earnings:number|null;
+  pe:number|null; price_to_fcf:number|null; as_of_date:string;
 };
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-export async function getCandidates(): Promise<Candidate[]> {
-  try {
-    const res = await fetch(`${API}/api/v1/research/candidates`, { next: { revalidate: 300 } });
-    if (!res.ok) throw new Error("API error");
-    return res.json();
-  } catch {
-    return [];
-  }
+const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export async function getCandidates():Promise<Candidate[]>{
+  const res=await fetch(`${API_URL}/api/v1/research/candidates`,{next:{revalidate:300}});
+  if(!res.ok) throw new Error("Failed to load research candidates");
+  return res.json();
 }
-
-export async function getCompany(ticker:string): Promise<Candidate|null> {
-  try {
-    const res = await fetch(`${API}/api/v1/research/companies/${ticker}`, { next: { revalidate: 300 } });
-    return res.ok ? res.json() : null;
-  } catch { return null; }
+export async function getCompany(ticker:string){
+  const res=await fetch(`${API_URL}/api/v1/research/companies/${ticker}`,{next:{revalidate:300}});
+  if(!res.ok) throw new Error("Failed to load company research");
+  return res.json();
 }

@@ -55,7 +55,7 @@ async def ingest(ticker: str):
             "revenue": inc.get("revenue"),
             "operating_income": inc.get("operatingIncome"),
             "net_income": inc.get("netIncome"),
-            "eps_diluted": inc.get("epsdiluted"),
+            "eps_diluted": inc.get("epsDiluted") if inc.get("epsDiluted") is not None else inc.get("epsdiluted"),
             "free_cash_flow": cash.get("freeCashFlow"),
             "capex": cash.get("capitalExpenditure"),
             "cash": bal.get("cashAndCashEquivalents"),

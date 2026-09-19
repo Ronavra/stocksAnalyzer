@@ -3,15 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import research
 
 app = FastAPI(title="StocksAnalyzer API", version="0.2.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:3000"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
 app.include_router(research.router)
 
 @app.get("/health")
-def health():
-    return {"status":"ok","version":"0.2.0"}
+def health(): return {"status":"ok","version":"0.2.0"}

@@ -9,7 +9,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, accuracy_score
 
 db=get_supabase()
-FEATURES=["momentum_5d","momentum_20d","volatility_20d","volume_change_5d","range_pct","close_vs_sma20","volume_ratio_20d"]
+FEATURES=["momentum_5d","momentum_20d","volatility_20d","volume_change_5d","range_pct","close_vs_sma20","volume_ratio_20d","market_momentum_5d","market_momentum_20d","market_volatility_20d","relative_momentum_5d","relative_momentum_20d"]
 
 def fetch(company_id):
     out=[]; start=0
@@ -22,7 +22,7 @@ def fetch(company_id):
         start+=1000
     return [r for r in out if all(r.get(k) is not None for k in FEATURES)]
 
-companies=db.table("companies").select("id,ticker").execute().data or []
+companies=(db.table("companies").select("id,ticker").neq("scoring_profile","benchmark").execute().data or [])
 all_preds=[]
 for c in companies:
     rows=fetch(c["id"]); preds=[]

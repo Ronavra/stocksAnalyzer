@@ -1,0 +1,3 @@
+-- Canonical application schema. Production was initialized in Supabase.
+-- Keep this file aligned with database migrations.
+-- Data ingestion writes server-side only; public browser credentials must never receive write access.

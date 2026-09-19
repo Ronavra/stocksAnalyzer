@@ -10,9 +10,19 @@ companies=db.table("companies").select("id,ticker").execute().data or []
 def ret(a,b):
     return (b/a)-1 if a not in (None,0) and b is not None else None
 
+def fetch_all_prices(company_id):
+    rows=[]; page_size=1000; start=0
+    while True:
+        batch=(db.table("price_history").select("price_date,open,high,low,close,volume")
+               .eq("company_id",company_id).order("price_date")
+               .range(start,start+page_size-1).execute().data or [])
+        rows.extend(batch)
+        if len(batch)<page_size: break
+        start+=page_size
+    return rows
+
 for company in companies:
-    rows=(db.table("price_history").select("price_date,open,high,low,close,volume").eq("company_id",company["id"])
-          .order("price_date").execute().data or [])
+    rows=fetch_all_prices(company["id"])
     payload=[]
     for i,r in enumerate(rows):
         close=float(r["close"]); volume=float(r["volume"]) if r.get("volume") is not None else None

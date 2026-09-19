@@ -23,7 +23,7 @@ q=db.table("companies").select("id,ticker,is_sp500,scoring_profile").or_("is_sp5
 companies=q.execute().data or []
 if args.tickers:
  wanted={x.upper() for x in args.tickers}; companies=[c for c in companies if c["ticker"].upper() in wanted]
-else:
+elif not args.all:
  companies=companies[args.offset:args.offset+args.batch_size]
 
 print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
@@ -56,6 +56,8 @@ for idx,c in enumerate(companies):
    print("Rate limit reached. Stop this batch and rerun the SAME offset later; existing rows will be skipped incrementally.")
    break
 
-if not args.tickers:
+if args.all:
+ print("Full-universe pass complete. Re-run --all later to fill any remaining gaps.")
+elif not args.tickers:
  next_offset=args.offset+len(companies)
  print(f"Batch complete. Next command: python scripts\\ingest_prices.py --offset {next_offset} --batch-size {args.batch_size}")

@@ -14,15 +14,14 @@ for c in companies:
     try:
         result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end)))
         rows=result.value
-        saved=0
+        payload=[]
         for r in rows:
-            d=r.get("date")
-            close=r.get("close")
+            d=r.get("date"); close=r.get("close")
             if not d or close is None: continue
-            db.table("price_history").upsert({
-              "company_id":c["id"],"price_date":d,"open":r.get("open"),"high":r.get("high"),
-              "low":r.get("low"),"close":close,"volume":r.get("volume"),"source":"fmp"
-            },on_conflict="company_id,price_date,source").execute(); saved+=1
-        print(c["ticker"],"price rows saved=",saved)
+            payload.append({"company_id":c["id"],"price_date":d,"open":r.get("open"),"high":r.get("high"),
+              "low":r.get("low"),"close":close,"volume":r.get("volume"),"source":"fmp"})
+        for i in range(0,len(payload),250):
+            db.table("price_history").upsert(payload[i:i+250],on_conflict="company_id,price_date,source").execute()
+        print(c["ticker"],"price rows saved=",len(payload))
     except Exception as e:
         print(c["ticker"],"price history unavailable:",e)

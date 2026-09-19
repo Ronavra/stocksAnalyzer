@@ -8,10 +8,16 @@ from app.db.client import get_supabase
 from app.providers.fmp import FMPProvider
 
 db=get_supabase(); provider=FMPProvider()
-end=date.today(); start=end-timedelta(days=365*6)
+end=date.today()
 companies=db.table("companies").select("id,ticker").execute().data or []
 for c in companies:
     try:
+        latest=(db.table("price_history").select("price_date").eq("company_id",c["id"])
+                .eq("source","fmp").order("price_date",desc=True).limit(1).execute().data or [])
+        start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*6)
+        if start>end:
+            print(c["ticker"],"price history already current")
+            continue
         result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end)))
         rows=result.value
         payload=[]

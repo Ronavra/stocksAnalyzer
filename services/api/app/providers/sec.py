@@ -7,6 +7,14 @@ class SECProvider:
     BASE_URL="https://data.sec.gov"
     def __init__(self,user_agent:str|None=None):
         self.user_agent=user_agent or os.getenv("SEC_USER_AGENT","StocksAnalyzer research-app contact@example.com")
+    async def ticker_map(self)->dict:
+        url=f"{self.BASE_URL}/files/company_tickers.json"
+        async with httpx.AsyncClient(timeout=30,headers={"User-Agent":self.user_agent}) as client:
+            r=await client.get(url)
+            if r.is_error: raise RuntimeError(f"SEC ticker map failed with HTTP {r.status_code}")
+            data=r.json()
+            return {str(v.get("ticker","")).upper().replace(".","-"):str(v.get("cik_str","")) for v in data.values()}
+
     async def company_facts(self,cik:str|int)->ProviderValue:
         cik10=str(cik).replace("CIK","").zfill(10)
         url=f"{self.BASE_URL}/api/xbrl/companyfacts/CIK{cik10}.json"

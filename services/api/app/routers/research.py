@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from ..db.client import get_supabase
 from ..research.analyst import build as build_analyst_assessment
+from ..research.fundamentals import derive as derive_fundamentals
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"])
 
@@ -85,8 +86,16 @@ def company(ticker:str):
     snapshots=db.table("research_snapshots").select("*").eq("company_id",c["id"]).order("as_of_date",desc=True).limit(12).execute().data or []
     latest_earnings=(db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).eq("source","massive_benzinga").lte("reported_date",__import__("datetime").date.today().isoformat()).order("reported_date",desc=True).limit(1).execute().data or [])
     latest_earnings=latest_earnings[0] if latest_earnings else None
-    assessment=build_analyst_assessment(snapshots[0],latest_earnings).__dict__ if snapshots else None
-    return {"company":c,"snapshots":snapshots,"analyst_assessment":assessment}
+    financials=(db.table("financial_metrics").select("period_end,revenue,operating_income,net_income,eps_diluted,free_cash_flow,capex,cash,total_debt,source")
+        .eq("company_id",c["id"]).eq("period_type","annual").order("period_end",desc=True).limit(6).execute().data or [])
+    # Prefer the latest two annual records with revenue; incomplete SEC rows remain visible but do not manufacture growth.
+    usable=[x for x in financials if x.get("revenue") is not None]
+    fundamental_signals=None
+    if usable:
+        sig=derive_fundamentals(usable[0],usable[1] if len(usable)>1 else None)
+        fundamental_signals={**sig.__dict__,"period_end":usable[0].get("period_end"),"source":usable[0].get("source")}
+    assessment=build_analyst_assessment(snapshots[0],latest_earnings,fundamental_signals).__dict__ if snapshots else None
+    return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment}
 
 @router.get("/framework")
 def framework():

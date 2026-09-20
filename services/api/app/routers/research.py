@@ -39,6 +39,20 @@ def data_audit():
       "notes":["Price/setup data is the strongest current layer.",
                "Fundamentals, valuation, estimates and earnings-event coverage are currently pilot-scale."]}
 
+@router.get("/companies-search")
+def companies_search(q:str=""):
+    q=q.strip()
+    if not q: return []
+    db=get_supabase()
+    # Search the full S&P 500 universe, not only rows currently returned by the setup scanner.
+    ticker_rows=db.table("companies").select("ticker,name,sector").eq("is_sp500",True).ilike("ticker",f"%{q}%").limit(8).execute().data or []
+    name_rows=db.table("companies").select("ticker,name,sector").eq("is_sp500",True).ilike("name",f"%{q}%").limit(8).execute().data or []
+    seen=set(); rows=[]
+    for x in ticker_rows+name_rows:
+        if x["ticker"] in seen: continue
+        seen.add(x["ticker"]); rows.append({"ticker":x["ticker"],"company":x["name"],"sector":x.get("sector")})
+    return rows[:8]
+
 @router.get("/companies/{ticker}")
 def company(ticker:str):
     db=get_supabase()

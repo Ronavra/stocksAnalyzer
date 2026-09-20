@@ -7,3 +7,6 @@ export type Candidate = {
 const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export async function getCandidates():Promise<Candidate[]>{const res=await fetch(`${API_URL}/api/v1/research/candidates`,{cache:"no-store"});if(!res.ok) throw new Error("Failed to load research candidates");return res.json();}
 export async function getCompany(ticker:string){const res=await fetch(`${API_URL}/api/v1/research/companies/${ticker}`,{next:{revalidate:300}});if(!res.ok) throw new Error("Failed to load company research");return res.json();}
+
+export type AuditLayer={key:string;label:string;companies:number;total:number;coverage_pct:number;status:string};
+export async function getDataAudit(){const res=await fetch(`${API_URL}/api/v1/research/data-audit`,{cache:"no-store"});if(!res.ok) throw new Error("Failed to load data audit");return res.json() as Promise<{universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[]}>;}

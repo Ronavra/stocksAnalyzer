@@ -19,7 +19,13 @@ def fetch_all_prices(company_id):
         rows.extend(batch)
         if len(batch)<page_size: break
         start+=page_size
-    return rows
+    # price_history can contain the same trading date from multiple providers
+    # (e.g. legacy FMP bootstrap + Twelve Data). Features are keyed only by
+    # company/date, so choose one deterministic row per date before computing.
+    by_date={}
+    for row in rows:
+        by_date[row["price_date"]]=row
+    return [by_date[d] for d in sorted(by_date)]
 
 benchmark=next((x for x in companies if x["ticker"]=="SPY"),None)
 spy_rows=fetch_all_prices(benchmark["id"]) if benchmark else []

@@ -1,17 +1,17 @@
 import Link from "next/link"; import {getCandidates} from "@/lib/api";
 const pct=(v:number|null,d=1)=>v==null?"—":`${(v*100).toFixed(d)}%`; const num=(v:number|null,d=1)=>v==null?"—":v.toFixed(d);
 const tips={
- ticker:"Ticker — סימול המסחר של החברה בבורסה.",
- company:"Company — השם הרשמי של החברה.",
- sector:"Sector — הסקטור העסקי שאליו החברה משויכת.",
- price:"Current Price — מחיר הסגירה האחרון ששמור אצלנו ב-price_history. כאשר קיימים נתונים מאותו יום ממספר ספקים, Twelve Data מקבל עדיפות. זהו מחיר הנתונים האחרון במערכת ולא בהכרח מחיר live.",
- date:"Data Date — תאריך מחיר הסגירה שעליו מבוסס Current Price. חישובי ה-setup נשמרים בנפרד עם as_of_date; בדרך כלל הם אמורים להיות מיושרים ליום המסחר האחרון.",
- opportunity:"Opportunity Score (0–100) — ציון heuristic נוכחי. מחושב מ-50% רכיב Historical Up Rate, 30% רכיב Median 5d Return ו-20% Upside to 60d High, לאחר נרמול הרכיבים והכפלה בפקטור evidence לפי מספר הדוגמאות (מגיע למלוא המשקל סביב 100 דוגמאות). הציון לא עבר validation מוצלח ב-walk-forward ולכן אינו תחזית או המלצה.",
- up:"Historical Up Rate — מתוך אירועים היסטוריים שבהם המניה הייתה במצב מחיר דומה להיום, האחוז שבהם התשואה בחמשת ימי המסחר הבאים הייתה חיובית. דמיון מוגדר לפי Drawdown מהשיא ל-60 יום ומרחק מתמיכה ל-60 יום, בטולרנס של כ-4 נקודות אחוז. זה שיעור היסטורי, לא הסתברות מכוילת.",
- median:"Median 5d — החציון של התשואה בחמשת ימי המסחר שלאחר כל ה-setups ההיסטוריים הדומים. חציון משמש כדי לצמצם השפעה של קפיצות/נפילות חריגות. לדוגמה 2% אומר שחצי מהאירועים היו מעל 2% וחצי מתחת.",
- high:"To 60d High — המרחק באחוזים מהמחיר הנוכחי לשיא של 60 ימי המסחר האחרונים. משמש כ-reference headroom בלבד. לדוגמה 15% אומר שנדרשת עלייה של בערך 15% כדי לחזור לשיא האחרון; זה אינו price target.",
- drawdown:"60d Drawdown — הירידה של המחיר הנוכחי ביחס לשיא ב-60 ימי המסחר האחרונים. ערך שלילי יותר מצביע על מניה שנמצאת עמוק יותר מתחת לשיא האחרון.",
- samples:"Samples — מספר המקרים ההיסטוריים שנמצאו דומים ל-setup הנוכחי ושיש להם תשואת 5 ימים עתידית ידועה. יותר דוגמאות נותנות בסיס סטטיסטי רחב יותר, אבל אינן מבטיחות שהדפוס מנבא את העתיד."
+ ticker:"Ticker — The stock's exchange trading symbol.",
+ company:"Company — The company's official name.",
+ sector:"Sector — The company's primary business sector.",
+ price:"Current Price — The latest closing price stored in price_history. This is the latest market close in our database, not a live quote.",
+ date:"Data Date — The trading date of the displayed closing price. Setup calculations have their own as-of date and should normally align with the latest trading day.",
+ opportunity:"Opportunity Score (0–100) — Current heuristic score: 50% historical up-rate component, 30% median 5-day return component, and 20% upside-to-60-day-high component after normalization, multiplied by an evidence factor based on sample size (full weight around 100 samples). Walk-forward validation did not show useful predictive lift, so this is descriptive, not a forecast or recommendation.",
+ up:"Historical Up Rate — Among historical observations with a price setup similar to today's, the percentage followed by a positive 5-trading-day return. Similarity uses 60-day drawdown and distance to 60-day support, each within roughly 4 percentage points of today's values. This is a historical frequency, not a calibrated probability forecast.",
+ median:"Median 5d — Median forward 5-trading-day return across the historically similar setups. The median reduces the influence of extreme moves. For example, 2% means half of the observations finished above 2% and half below.",
+ high:"To 60d High — Percentage distance from the current close to the highest price in the previous 60 trading days. It is reference headroom only: 15% means roughly a 15% rise would be required to revisit that high. It is not a price target.",
+ drawdown:"60d Drawdown — Current close relative to the 60-trading-day high. A more negative value means the stock is trading further below its recent high.",
+ samples:"Samples — Number of historical observations considered similar to the current setup for which a forward 5-day return is known. More samples provide a broader evidence base, but do not guarantee predictive value."
 };
 const TH=({label,tip}:{label:string,tip:string})=><th className="tipHead"><span tabIndex={0}>{label}<i>?</i><b className="tooltip">{tip}</b></span></th>;
 export default async function Home(){const candidates=await getCandidates(); const withSetup=candidates.filter(x=>x.opportunity_score!=null); const avgN=withSetup.length?Math.round(withSetup.reduce((s,x)=>s+(x.setup_sample_size||0),0)/withSetup.length):0;

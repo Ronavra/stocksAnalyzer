@@ -6,11 +6,18 @@ router=APIRouter(prefix="/api/v1/research",tags=["research"])
 @router.get("/candidates")
 def candidates():
     db=get_supabase()
-    rows=db.table("research_snapshots").select(
-        "as_of_date,research_priority_score,research_priority_coverage,research_priority_reason,"
-        "fundamentals_score,valuation_score,earnings_score,pe,price_to_fcf,opportunity_score,setup_probability_up,setup_median_return_5d,setup_sample_size,upside_to_60d_high,setup_drawdown_60d,opportunity_reason,"
-        "companies!inner(ticker,name,sector,industry,scoring_profile)"
-    ).order("as_of_date",desc=True).limit(100).execute().data or []
+    rows=[]
+    page_size=1000
+    start=0
+    while True:
+        batch=db.table("research_snapshots").select(
+            "as_of_date,research_priority_score,research_priority_coverage,research_priority_reason,"
+            "fundamentals_score,valuation_score,earnings_score,pe,price_to_fcf,opportunity_score,setup_probability_up,setup_median_return_5d,setup_sample_size,upside_to_60d_high,setup_drawdown_60d,opportunity_reason,"
+            "companies!inner(ticker,name,sector,industry,scoring_profile)"
+        ).order("as_of_date",desc=True).range(start,start+page_size-1).execute().data or []
+        rows.extend(batch)
+        if len(batch)<page_size: break
+        start+=page_size
     latest={}
     for row in rows:
         ticker=row["companies"]["ticker"]

@@ -8,7 +8,17 @@ router=APIRouter(prefix="/api/v1/research",tags=["research"])
 def candidates():
     db=get_supabase()
     rows=db.rpc("research_dashboard_candidates").execute().data or []
-    return [{
+    ids=[r.get("company_id") for r in rows if r.get("company_id")]
+    # Attach the latest reported Benzinga event as catalyst evidence. It does not alter Probability Up.
+    earnings={}
+    if ids:
+        ev=(db.table("earnings_events").select("company_id,reported_date,surprise_percent,revenue_surprise_percent,source")
+            .in_("company_id",ids).eq("source","massive_benzinga")
+            .lte("reported_date",__import__("datetime").date.today().isoformat())
+            .order("reported_date",desc=True).execute().data or [])
+        for e in ev:
+            earnings.setdefault(e["company_id"],e)
+    result=[{
       "ticker":r["ticker"],"company":r["company"],"sector":r.get("sector"),"signal":"setup",
       "score":r.get("research_priority_score"),"coverage":r.get("research_priority_coverage"),
       "catalyst":r.get("research_priority_reason"),"fundamentals":r.get("fundamentals_score"),
@@ -18,8 +28,21 @@ def candidates():
       "setup_median_return_5d":r.get("setup_median_return_5d"),"setup_sample_size":r.get("setup_sample_size"),
       "upside_to_60d_high":r.get("upside_to_60d_high"),"setup_drawdown_60d":r.get("setup_drawdown_60d"),
       "opportunity_reason":r.get("opportunity_reason"),"current_price":r.get("current_price"),
-      "price_date":r.get("price_date"),"price_source":r.get("price_source")
+      "price_date":r.get("price_date"),"price_source":r.get("price_source"),
+      "earnings_catalyst":earnings.get(r.get("company_id"))
     } for r in rows]
+    def catalyst_strength(x):
+        e=x.get("earnings_catalyst") or {}; eps=e.get("surprise_percent"); rev=e.get("revenue_surprise_percent")
+        vals=[float(v) for v in (eps,rev) if v is not None]
+        if not vals: return 0
+        # Small bounded research-priority nudge only; not a probability model.
+        return max(-8,min(8,sum(max(-20,min(20,v)) for v in vals)/5))
+    for x in result:
+        base=x.get("opportunity_score")
+        x["catalyst_adjustment"]=round(catalyst_strength(x),2)
+        x["research_rank_score"]=round(float(base)+x["catalyst_adjustment"],2) if base is not None else None
+    result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
+    return result
 
 @router.get("/data-audit")
 def data_audit():

@@ -101,3 +101,26 @@ def company(ticker:str):
 def framework():
     return {"dimensions":["fundamentals","valuation","earnings/revisions","momentum","news/sentiment","catalysts"],
             "purpose":"Prioritize companies for research; not personalized buy/sell instructions."}
+
+
+@router.get("/signals")
+def signals(limit:int=100):
+    db=get_supabase()
+    rows=(db.table("research_predictions").select("*,companies(ticker,name,sector)")
+          .order("signal_date",desc=True).order("rank").limit(min(max(limit,1),500)).execute().data or [])
+    return rows
+
+@router.get("/scorecard")
+def scorecard():
+    db=get_supabase()
+    rows=(db.table("research_predictions").select("actual_return,benchmark_return,excess_return,correct_direction")
+          .not_.is_("evaluated_at","null").execute().data or [])
+    n=len(rows)
+    if not n: return {"evaluated":0,"win_rate":None,"avg_return":None,"median_return":None,"avg_excess_return":None,"beat_spy_rate":None}
+    import statistics
+    rets=[float(x["actual_return"]) for x in rows if x.get("actual_return") is not None]
+    excess=[float(x["excess_return"]) for x in rows if x.get("excess_return") is not None]
+    return {"evaluated":n,"win_rate":sum(bool(x.get("correct_direction")) for x in rows)/n,
+      "avg_return":sum(rets)/len(rets) if rets else None,"median_return":statistics.median(rets) if rets else None,
+      "avg_excess_return":sum(excess)/len(excess) if excess else None,
+      "beat_spy_rate":sum(x>0 for x in excess)/len(excess) if excess else None}

@@ -4,9 +4,29 @@ export type Candidate = {
  opportunity_score:number|null; setup_probability_up:number|null; setup_median_return_5d:number|null; setup_sample_size:number|null;
  upside_to_60d_high:number|null; setup_drawdown_60d:number|null; opportunity_reason:string|null; current_price:number|null; price_date:string|null; price_source:string|null;
 };
-const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-export async function getCandidates():Promise<Candidate[]>{const res=await fetch(`${API_URL}/api/v1/research/candidates`,{cache:"no-store"});if(!res.ok) throw new Error("Failed to load research candidates");return res.json();}
-export async function getCompany(ticker:string){const res=await fetch(`${API_URL}/api/v1/research/companies/${ticker}`,{next:{revalidate:300}});if(!res.ok) throw new Error("Failed to load company research");return res.json();}
+const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+async function apiFetch(path:string, init:RequestInit={}){
+ try{
+  return await fetch(`${API_URL}${path}`,init);
+ }catch(err){
+  console.error(`API fetch failed: ${API_URL}${path}`,err);
+  return null;
+ }
+}
+export async function getCandidates():Promise<Candidate[]>{
+ const res=await apiFetch("/api/v1/research/candidates",{cache:"no-store"});
+ if(!res?.ok) return [];
+ return res.json();
+}
+export async function getCompany(ticker:string){
+ const res=await apiFetch(`/api/v1/research/companies/${ticker}`,{next:{revalidate:300}});
+ if(!res?.ok) return null;
+ return res.json();
+}
 export type AuditLayer={key:string;label:string;companies:number;total:number;coverage_pct:number;status:string};
-export async function getDataAudit(){const res=await fetch(`${API_URL}/api/v1/research/data-audit`,{cache:"no-store"});if(!res.ok) throw new Error("Failed to load data audit");return res.json() as Promise<{universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[]}>;}
+export async function getDataAudit(){
+ const res=await apiFetch("/api/v1/research/data-audit",{cache:"no-store"});
+ if(!res?.ok) return {universe:503,layers:[] as AuditLayer[],missing_price_tickers:[] as string[],notes:["Backend unavailable"]};
+ return res.json() as Promise<{universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[]}>;
+}

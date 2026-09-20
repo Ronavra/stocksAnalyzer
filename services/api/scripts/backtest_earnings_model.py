@@ -23,7 +23,8 @@ def load_rows(db):
     out=[]
     for c in companies:
         events=db.table("earnings_events").select("reported_date,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).order("reported_date").execute().data or []
-        events=[e for e in events if e.get("source")=="massive_benzinga"]\n        if not events: continue
+        events=[e for e in events if e.get("source")=="massive_benzinga"]
+        if not events: continue
         pf=[]; start=0
         while True:
             chunk=(db.table("price_features").select("feature_date,close,drawdown_60d,relative_momentum_20d,momentum_20d,volatility_20d,market_momentum_20d,market_volatility_20d")

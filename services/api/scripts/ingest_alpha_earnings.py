@@ -17,9 +17,13 @@ for i,c in enumerate(companies):
   for x in q:
    rd=x.get("reportedDate"); rep=x.get("reportedEPS"); est=x.get("estimatedEPS")
    if not rd or rep in (None,"None") or est in (None,"None"): continue
+   def num(v):
+    if v in (None,"None",""): return None
+    try: return float(v)
+    except (TypeError,ValueError): return None
    payload.append({"company_id":c["id"],"reported_date":rd,"fiscal_date_ending":x.get("fiscalDateEnding"),
-    "reported_eps":rep,"estimated_eps":est,"surprise":x.get("surprise"),
-    "surprise_percent":x.get("surprisePercentage"),"source":"alphavantage"})
+    "reported_eps":num(rep),"estimated_eps":num(est),"surprise":num(x.get("surprise")),
+    "surprise_percent":num(x.get("surprisePercentage")),"source":"alphavantage"})
   if payload: db.table("earnings_events").upsert(payload,on_conflict="company_id,reported_date,source").execute()
   print(c["ticker"],"earnings saved=",len(payload))
  except Exception as e:

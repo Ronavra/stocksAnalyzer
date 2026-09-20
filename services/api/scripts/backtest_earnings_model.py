@@ -22,7 +22,7 @@ def load_rows(db):
     companies=db.table("companies").select("id,ticker").eq("is_sp500",True).execute().data or []
     out=[]
     for c in companies:
-        events=db.table("earnings_events").select("reported_date,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).order("reported_date").execute().data or []
+        events=db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).order("reported_date").execute().data or []
         events=[e for e in events if e.get("source")=="massive_benzinga"]
         if not events: continue
         pf=[]; start=0
@@ -33,13 +33,17 @@ def load_rows(db):
             if len(chunk)<1000: break
             start+=1000
         for e in events:
-            d=str(e["reported_date"]); i=next((i for i,x in enumerate(pf) if str(x["feature_date"])>d),None)
+            d=str(e["reported_date"])
+            t=str(e.get("event_time") or "")
+            premarket=bool(t and t < "09:30:00")
+            i=next((i for i,x in enumerate(pf) if str(x["feature_date"])>=d),None) if premarket else next((i for i,x in enumerate(pf) if str(x["feature_date"])>d),None)
             if i is None or i+5>=len(pf): continue
+            feature_i=max(0,i-1)
             entry=num(pf[i]["close"]); future=num(pf[i+5]["close"])
             if math.isnan(entry) or math.isnan(future) or entry==0: continue
             ret=future/entry-1
             x={"eps_surprise":num(e.get("surprise_percent")),"revenue_surprise":num(e.get("revenue_surprise_percent"))}
-            for k in FEATURES[2:]: x[k]=num(pf[i].get(k))
+            for k in FEATURES[2:]: x[k]=num(pf[feature_i].get(k))
             out.append({"ticker":c["ticker"],"year":int(d[:4]),"x":[x[k] for k in FEATURES],"ret":ret,"up":int(ret>0)})
     return out
 

@@ -12,7 +12,7 @@ try:
 except ImportError:
     raise SystemExit("Install model deps: pip install scikit-learn numpy")
 
-FEATURES=["eps_surprise","drawdown_60d","relative_momentum_20d","momentum_20d","volatility_20d","market_momentum_20d","market_volatility_20d"]
+FEATURES=["eps_surprise","revenue_surprise","drawdown_60d","relative_momentum_20d","momentum_20d","volatility_20d","market_momentum_20d","market_volatility_20d"]
 
 def num(v):
     try:return float(v) if v is not None else math.nan
@@ -22,8 +22,8 @@ def load_rows(db):
     companies=db.table("companies").select("id,ticker").eq("is_sp500",True).execute().data or []
     out=[]
     for c in companies:
-        events=db.table("earnings_events").select("reported_date,surprise_percent").eq("company_id",c["id"]).order("reported_date").execute().data or []
-        if not events: continue
+        events=db.table("earnings_events").select("reported_date,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).order("reported_date").execute().data or []
+        events=[e for e in events if e.get("source")=="massive_benzinga"]\n        if not events: continue
         pf=[]; start=0
         while True:
             chunk=(db.table("price_features").select("feature_date,close,drawdown_60d,relative_momentum_20d,momentum_20d,volatility_20d,market_momentum_20d,market_volatility_20d")
@@ -37,8 +37,8 @@ def load_rows(db):
             entry=num(pf[i]["close"]); future=num(pf[i+5]["close"])
             if math.isnan(entry) or math.isnan(future) or entry==0: continue
             ret=future/entry-1
-            x={"eps_surprise":num(e.get("surprise_percent"))}
-            for k in FEATURES[1:]: x[k]=num(pf[i].get(k))
+            x={"eps_surprise":num(e.get("surprise_percent")),"revenue_surprise":num(e.get("revenue_surprise_percent"))}
+            for k in FEATURES[2:]: x[k]=num(pf[i].get(k))
             out.append({"ticker":c["ticker"],"year":int(d[:4]),"x":[x[k] for k in FEATURES],"ret":ret,"up":int(ret>0)})
     return out
 
@@ -68,6 +68,6 @@ def main():
         for lo,hi in [(0,.5),(.5,.6),(.6,.7),(.7,.8),(.8,1.01)]:
             bucket=[r for r in all_test if lo<=r["prob"]<hi]
             if bucket: print(f"prob {lo:.0%}-{hi:.0%}: n={len(bucket)} predicted={sum(r['prob'] for r in bucket)/len(bucket):.1%} actual={sum(r['up'] for r in bucket)/len(bucket):.1%}")
-    print("\nCaveats: partial earnings coverage and current-index survivorship bias remain. Do not use these probabilities in production until calibration and broader point-in-time coverage are validated.")
+    print("\nCaveats: current-index survivorship bias remains; future-dated events are naturally excluded because no post-event price label exists. Do not use these probabilities in production until calibration and broader point-in-time coverage are validated.")
 
 if __name__=="__main__": main()

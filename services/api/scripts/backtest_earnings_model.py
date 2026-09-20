@@ -23,7 +23,7 @@ def load_rows(db):
     out=[]
     for c in companies:
         events=db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).order("reported_date").execute().data or []
-        events=[e for e in events if e.get("source")=="massive_benzinga"]
+        events=[e for e in events if e.get("source")=="massive_benzinga" and str(e.get("reported_date",""))>="2021-01-01"]
         if not events: continue
         pf=[]; start=0
         while True:
@@ -48,12 +48,12 @@ def load_rows(db):
     return out
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--min-train",type=int,default=300); ap.add_argument("--top",type=int,default=5); a=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--min-train",type=int,default=1000); ap.add_argument("--top",type=int,default=25); a=ap.parse_args()
     db=get_supabase(); rows=load_rows(db); years=sorted(set(r["year"] for r in rows)); all_test=[]
-    print("True walk-forward earnings model | target: next 5 trading sessions")
+    print("Recent-regime walk-forward earnings model | target: next 5 trading sessions | data >= 2021")
     print("Features:",", ".join(FEATURES))
     for year in years:
-        train=[r for r in rows if r["year"]<year]; test=[r for r in rows if r["year"]==year]
+        train=[r for r in rows if r["year"]<year and r["year"]>=2021]; test=[r for r in rows if r["year"]==year]
         if len(train)<a.min_train or len(test)<10: continue
         X=np.array([r["x"] for r in train],dtype=float); y=np.array([r["up"] for r in train]); yr=np.array([r["ret"] for r in train])
         Xt=np.array([r["x"] for r in test],dtype=float)

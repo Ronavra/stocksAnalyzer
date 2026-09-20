@@ -24,42 +24,95 @@ class SECProvider:
             if r.is_error: raise RuntimeError(f"SEC companyfacts failed with HTTP {r.status_code}")
             return ProviderValue(r.json(),Provenance("sec",url,datetime.now(timezone.utc)))
 
-def facts_by_period(data:dict,years:int=10):
-    facts=(data.get("facts") or {}).get("us-gaap") or {}
-    aliases={
-      "revenue":["RevenueFromContractWithCustomerExcludingAssessedTax","Revenues","SalesRevenueNet"],
-      "operating_income":["OperatingIncomeLoss"],
-      "net_income":["NetIncomeLoss","ProfitLoss"],
-      "eps_diluted":["EarningsPerShareDiluted"],
-      "operating_cash_flow":["NetCashProvidedByUsedInOperatingActivities"],
-      "capex":["PaymentsToAcquirePropertyPlantAndEquipment"],
-      "cash":["CashAndCashEquivalentsAtCarryingValue","CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
-      "total_debt":["LongTermDebtAndFinanceLeaseObligationsCurrent","LongTermDebtCurrent","LongTermDebtNoncurrent","LongTermDebt"],
-      "equity":["StockholdersEquity"],
-      "shares":["CommonStocksIncludingAdditionalPaidInCapitalMember"], # intentionally not used until normalized
+def facts_by_period(data: dict, years: int = 10):
+    facts = (data.get("facts") or {}).get("us-gaap") or {}
+    aliases = {
+        "revenue": [
+            "RevenueFromContractWithCustomerExcludingAssessedTax",
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
+            "Revenues",
+            "SalesRevenueNet",
+        ],
+        "operating_income": ["OperatingIncomeLoss"],
+        "net_income": ["NetIncomeLoss", "ProfitLoss"],
+        "eps_diluted": ["EarningsPerShareDiluted"],
+        "operating_cash_flow": ["NetCashProvidedByUsedInOperatingActivities"],
+        "capex": [
+            "PaymentsToAcquirePropertyPlantAndEquipment",
+            "PaymentsForAdditionsToPropertyPlantAndEquipment",
+        ],
+        "cash": [
+            "CashAndCashEquivalentsAtCarryingValue",
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+        ],
+        "debt_current": [
+            "LongTermDebtAndFinanceLeaseObligationsCurrent",
+            "LongTermDebtCurrent",
+            "ShortTermBorrowings",
+        ],
+        "debt_noncurrent": [
+            "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
+            "LongTermDebtNoncurrent",
+        ],
+        "debt_total": ["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
     }
-    units={"eps_diluted":["USD/shares"],"revenue":["USD"],"operating_income":["USD"],"net_income":["USD"],"operating_cash_flow":["USD"],"capex":["USD"],"cash":["USD"],"total_debt":["USD"],"equity":["USD"]}
-    out={}
-    for key,tags in aliases.items():
-      if key=="shares": continue
-      for tag in tags:
-        node=facts.get(tag)
-        if not node: continue
-        rows=[]
-        for unit in units.get(key,["USD"]):
-          rows.extend((node.get("units") or {}).get(unit) or [])
-        # 10-K facts only; use filing date as point-in-time provenance and dedupe restatements by latest filed.
-        rows=[x for x in rows if x.get("form") in ("10-K","10-K/A") and x.get("end") and x.get("val") is not None]
-        if rows:
-          for x in rows:
-            d=x["end"]; rec=out.setdefault(d,{"period_end":d,"filed_date":x.get("filed"),"accn":x.get("accn")})
-            old=rec.get("_filed_"+key,"")
-            if (x.get("filed") or "")>=old:
-              rec[key]=x["val"]; rec["_filed_"+key]=x.get("filed") or ""
-          break
+    units = {"eps_diluted": ["USD/shares"]}
+    duration_keys = {"revenue", "operating_income", "net_income", "eps_diluted", "operating_cash_flow", "capex"}
+
+    def rows_for(key):
+        found = []
+        for tag in aliases[key]:
+            node = facts.get(tag) or {}
+            for unit in units.get(key, ["USD"]):
+                for x in (node.get("units") or {}).get(unit) or []:
+                    if (
+                        x.get("form") in ("10-K", "10-K/A")
+                        and x.get("fp") == "FY"
+                        and x.get("end")
+                        and x.get("val") is not None
+                    ):
+                        if key in duration_keys:
+                            start = x.get("start")
+                            if not start:
+                                continue
+                            try:
+                                days = (datetime.fromisoformat(x["end"]) - datetime.fromisoformat(start)).days
+                            except ValueError:
+                                continue
+                            if not 300 <= days <= 430:
+                                continue
+                        found.append(x)
+            if found:
+                break
+        return found
+
+    out = {}
+    for key in aliases:
+        for x in rows_for(key):
+            d = x["end"]
+            rec = out.setdefault(d, {"period_end": d})
+            marker = "_filed_" + key
+            if (x.get("filed") or "") >= rec.get(marker, ""):
+                rec[key] = x["val"]
+                rec[marker] = x.get("filed") or ""
+                rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
+                if x.get("accn"):
+                    rec["accn"] = x["accn"]
+
     for rec in out.values():
-      ocf=rec.get("operating_cash_flow"); capex=rec.get("capex")
-      rec["free_cash_flow"]=None if ocf is None or capex is None else float(ocf)-abs(float(capex))
-      for k in list(rec):
-        if k.startswith("_filed_"): rec.pop(k)
-    return sorted(out.values(),key=lambda x:x["period_end"],reverse=True)[:years]
+        if rec.get("debt_total") is not None:
+            rec["total_debt"] = rec["debt_total"]
+        elif rec.get("debt_current") is not None or rec.get("debt_noncurrent") is not None:
+            rec["total_debt"] = float(rec.get("debt_current") or 0) + float(rec.get("debt_noncurrent") or 0)
+        ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
+        rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
+        for k in list(rec):
+            if k.startswith("_filed_") or k in ("debt_current", "debt_noncurrent", "debt_total"):
+                rec.pop(k, None)
+
+    # Keep only real fiscal-year records with enough core data to be useful.
+    annual = [
+        rec for rec in out.values()
+        if sum(rec.get(k) is not None for k in ("revenue", "operating_income", "net_income", "eps_diluted")) >= 2
+    ]
+    return sorted(annual, key=lambda x: x["period_end"], reverse=True)[:years]

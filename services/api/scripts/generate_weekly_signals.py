@@ -34,7 +34,7 @@ def generate(db, top=5, horizon=5):
     today=date.today().isoformat()
     out=[]
     for rank,(rank_score,r,e) in enumerate(picks[:top],1):
-        rec={"company_id":r["company_id"],"signal_date":today,"horizon_days":horizon,"signal":"UP","rank":rank,
+        rec={"company_id":r["company_id"],"signal_date":r.get("price_date") or r.get("as_of_date") or today,"horizon_days":horizon,"signal":"UP","rank":rank,
              "entry_price":r.get("current_price"),"research_score":round(rank_score,2),
              "historical_up_rate":r.get("setup_probability_up"),"historical_median_return":r.get("setup_median_return_5d"),
              "sample_size":r.get("setup_sample_size"),"catalyst":e or None,"model_version":"weekly-signal-v1"}

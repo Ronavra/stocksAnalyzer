@@ -34,9 +34,15 @@ for c in companies:
  evidence=min(1,n/100)
  score=100*(.50*prob_component+.30*return_component+.20*upside_component)*(.65+.35*evidence) if n else None
  reason=(f"{n} similar setups; {up:.1%} positive; median 5d {med:.1%}; {upside:.1%} room to 60d high" if n and upside is not None else "Insufficient comparable setup history")
- snap=(db.table("research_snapshots").select("id").eq("company_id",c["id"]).order("as_of_date",desc=True).limit(1).execute().data or [])
- if snap:
-  db.table("research_snapshots").update({"opportunity_score":round(score,2) if score is not None else None,"setup_probability_up":up,"setup_median_return_5d":med,"setup_sample_size":n,"upside_to_60d_high":upside,"setup_drawdown_60d":float(dd) if dd is not None else None,"opportunity_reason":reason}).eq("id",snap[0]["id"]).execute()
+ snapshot_date=cur["feature_date"]
+ values={"company_id":c["id"],"as_of_date":snapshot_date,
+         "opportunity_score":round(score,2) if score is not None else None,
+         "setup_probability_up":up,"setup_median_return_5d":med,"setup_sample_size":n,
+         "upside_to_60d_high":upside,"setup_drawdown_60d":float(dd) if dd is not None else None,
+         "opportunity_reason":reason}
+ # Every company with price features gets a snapshot, even when fundamentals
+ # have not been ingested yet. This lets the API rank the full S&P 500 universe.
+ db.table("research_snapshots").upsert(values,on_conflict="company_id,as_of_date").execute()
  ranked.append((score or -1,c["ticker"],n,up,med,upside,dd))
 for i,x in enumerate(sorted(ranked,reverse=True),1):
  score,t,n,up,med,upside,dd=x

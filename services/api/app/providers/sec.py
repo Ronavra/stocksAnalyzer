@@ -8,7 +8,7 @@ class SECProvider:
     def __init__(self,user_agent:str|None=None):
         self.user_agent=user_agent or os.getenv("SEC_USER_AGENT","StocksAnalyzer research-app contact@example.com")
     async def ticker_map(self)->dict:
-        url=f"{self.BASE_URL}/files/company_tickers.json"
+        url="https://www.sec.gov/files/company_tickers.json"
         async with httpx.AsyncClient(timeout=30,headers={"User-Agent":self.user_agent}) as client:
             r=await client.get(url)
             if r.is_error: raise RuntimeError(f"SEC ticker map failed with HTTP {r.status_code}")

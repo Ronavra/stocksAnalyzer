@@ -23,13 +23,13 @@ async def main():
             for x in rows:
                 reported=x.get("date")
                 if not reported: continue
-                actual_eps=num(x.get("eps")); estimated_eps=num(x.get("eps_est"))
-                actual_rev=num(x.get("revenue")); estimated_rev=num(x.get("revenue_est"))
+                actual_eps=num(x.get("actual_eps")); estimated_eps=num(x.get("estimated_eps"))
+                actual_rev=num(x.get("actual_revenue")); estimated_rev=num(x.get("estimated_revenue"))
                 eps_surprise=(actual_eps-estimated_eps) if actual_eps is not None and estimated_eps is not None else None
                 eps_pct=(eps_surprise/abs(estimated_eps)*100) if eps_surprise is not None and estimated_eps not in (None,0) else None
                 rev_surprise=(actual_rev-estimated_rev) if actual_rev is not None and estimated_rev is not None else None
                 rev_pct=(rev_surprise/abs(estimated_rev)*100) if rev_surprise is not None and estimated_rev not in (None,0) else None
-                payload.append({"company_id":c["id"],"reported_date":reported,"fiscal_date_ending":x.get("period_end_date"),
+                payload.append({"company_id":c["id"],"reported_date":reported,"fiscal_date_ending":None,
                   "reported_eps":actual_eps,"estimated_eps":estimated_eps,"surprise":eps_surprise,"surprise_percent":eps_pct,
                   "actual_revenue":actual_rev,"estimated_revenue":estimated_rev,"revenue_surprise":rev_surprise,
                   "revenue_surprise_percent":rev_pct,"event_time":x.get("time"),"source":"massive_benzinga",

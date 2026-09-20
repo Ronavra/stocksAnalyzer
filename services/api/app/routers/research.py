@@ -7,17 +7,20 @@ router=APIRouter(prefix="/api/v1/research",tags=["research"])
 def candidates():
     db=get_supabase()
     rows=db.table("research_snapshots").select(
-        "as_of_date,research_priority_score,research_priority_coverage,research_priority_reason,"
+        "company_id,as_of_date,research_priority_score,research_priority_coverage,research_priority_reason,"
         "fundamentals_score,valuation_score,earnings_score,pe,price_to_fcf,opportunity_score,setup_probability_up,setup_median_return_5d,setup_sample_size,upside_to_60d_high,setup_drawdown_60d,opportunity_reason,"
         "companies!inner(ticker,name,sector,industry,scoring_profile)"
     ).not_.is_("opportunity_score","null").order("opportunity_score",desc=True).limit(503).execute().data or []
     result=[]
     for row in rows:
         company=row["companies"]
-        price=(db.table("price_history").select("price_date,close,source")
-               .eq("company_id", db.table("companies").select("id").eq("ticker",company["ticker"]).single().execute().data["id"])
-               .order("price_date",desc=True).limit(1).execute().data or [])
-        price=price[0] if price else None
+        price_rows=(db.table("price_history").select("price_date,close,source")
+                    .eq("company_id",row["company_id"]).order("price_date",desc=True).limit(10).execute().data or [])
+        price=None
+        if price_rows:
+            newest=price_rows[0]["price_date"]
+            same_day=[p for p in price_rows if p["price_date"]==newest]
+            price=next((p for p in same_day if p.get("source")=="twelvedata"),same_day[0])
         result.append({
           "ticker":company["ticker"],"company":company["name"],"sector":company.get("sector"),
           "signal":"setup","score":row.get("research_priority_score"),"coverage":row.get("research_priority_coverage"),

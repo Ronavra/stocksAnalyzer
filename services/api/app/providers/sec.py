@@ -32,6 +32,7 @@ def facts_by_period(data: dict, years: int = 10):
             "RevenueFromContractWithCustomerIncludingAssessedTax",
             "Revenues",
             "SalesRevenueNet",
+            "SalesRevenueGoodsNet",
         ],
         "operating_income": ["OperatingIncomeLoss"],
         "net_income": ["NetIncomeLoss", "ProfitLoss"],
@@ -40,6 +41,7 @@ def facts_by_period(data: dict, years: int = 10):
         "capex": [
             "PaymentsToAcquirePropertyPlantAndEquipment",
             "PaymentsForAdditionsToPropertyPlantAndEquipment",
+            "PaymentsToAcquireProductiveAssets",
         ],
         "cash": [
             "CashAndCashEquivalentsAtCarryingValue",

@@ -16,18 +16,20 @@ class AnalystAssessment:
     risks: list[str]
     invalidation_conditions: list[str]
     catalyst: dict | None = None
-    model_version: str = "analyst-v0.2"
+    fundamentals: dict | None = None
+    model_version: str = "analyst-v0.3"
 
 def _pct(v):
     return f"{float(v):+.1f}%" if v is not None else None
 
-def build(snapshot: dict, latest_earnings: dict | None = None) -> AnalystAssessment:
+def build(snapshot: dict, latest_earnings: dict | None = None, fundamental_signals: dict | None = None) -> AnalystAssessment:
     evidence=[]; risks=[]
     setup=snapshot.get("opportunity_score"); hist_up=snapshot.get("setup_probability_up")
     med=snapshot.get("setup_median_return_5d"); n=int(snapshot.get("setup_sample_size") or 0)
     drawdown=snapshot.get("setup_drawdown_60d"); upside=snapshot.get("upside_to_60d_high")
     fundamentals=snapshot.get("fundamentals_score"); revisions=snapshot.get("earnings_score")
     catalyst=None
+    fundamental_view=None
     if latest_earnings:
         eps=latest_earnings.get("surprise_percent"); rev=latest_earnings.get("revenue_surprise_percent")
         eps_beat=eps is not None and float(eps)>0; rev_beat=rev is not None and float(rev)>0
@@ -45,6 +47,16 @@ def build(snapshot: dict, latest_earnings: dict | None = None) -> AnalystAssessm
             risks.append("Latest earnings missed consensus on both EPS and revenue.")
         elif eps is not None and rev is not None:
             risks.append("Latest earnings were mixed across EPS and revenue versus consensus.")
+    if fundamental_signals:
+        fundamental_view=fundamental_signals
+        rg=fundamental_signals.get("revenue_growth")
+        om=fundamental_signals.get("operating_margin")
+        fm=fundamental_signals.get("fcf_margin")
+        lev=fundamental_signals.get("net_debt_to_fcf")
+        if rg is not None: evidence.append(f"Latest annual revenue growth was {_pct(float(rg)*100)}.")
+        if om is not None: evidence.append(f"Operating margin was {float(om):.1%}.")
+        if fm is not None: evidence.append(f"Free-cash-flow margin was {float(fm):.1%}.")
+        if lev is not None and float(lev)>3: risks.append(f"Net debt / FCF is elevated at {float(lev):.1f}x.")
     if hist_up is not None: evidence.append(f"Similar historical price setups were positive after 5 trading days {float(hist_up):.1%} of the time across {n} labeled observations.")
     if med is not None: evidence.append(f"Median 5-day return for similar historical setups was {float(med):+.1%}.")
     if drawdown is not None: evidence.append(f"Price is {abs(float(drawdown)):.1%} below its prior 60-day high.")
@@ -56,8 +68,8 @@ def build(snapshot: dict, latest_earnings: dict | None = None) -> AnalystAssessm
     if snapshot.get("valuation_score") is None: risks.append("Validated fair-value model is not yet available.")
     risks.append("Earnings surprises are catalyst evidence, not a calibrated probability forecast; recent walk-forward tests did not beat the direction baseline consistently.")
     invalidation=["Material deterioration in earnings/revenue expectations.","A new earnings or guidance event that changes the thesis.","Price behavior materially diverges from the historical setup."]
-    fields=[setup,hist_up,med,drawdown,upside,fundamentals,revisions,latest_earnings]
+    fields=[setup,hist_up,med,drawdown,upside,fundamental_signals,revisions,latest_earnings]
     coverage=sum(x is not None for x in fields)/len(fields)*100
     confidence="medium" if coverage>=70 and n>=100 else "low"
     return AnalystAssessment(float(setup) if setup is not None else None,None,None,None,None,None,None,
-        "watch" if setup is not None else "insufficient_data",confidence,round(coverage,1),evidence,risks,invalidation,catalyst)
+        "watch" if setup is not None else "insufficient_data",confidence,round(coverage,1),evidence,risks,invalidation,catalyst,fundamental_view)

@@ -29,7 +29,7 @@ async def ingest_company(db,provider,c):
           "free_cash_flow":fcf,"capex":num(cash.get("capitalExpenditure")),
           "cash":num(b.get("cashAndCashEquivalents") or b.get("cashAndShortTermInvestments")),
           "total_debt":num(b.get("totalDebt")),"source":"fmp"}
-        db.table("financial_metrics").upsert(payload,on_conflict="company_id,period_end,period_type,source").execute(); saved+=1
+        db.table("financial_metrics").upsert(payload,on_conflict="company_id,period_end,period_type").execute(); saved+=1
     return saved
 
 async def main():

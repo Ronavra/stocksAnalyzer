@@ -46,7 +46,9 @@ def company(ticker:str):
     if not companies: raise HTTPException(404,"Company not found")
     c=companies[0]
     snapshots=db.table("research_snapshots").select("*").eq("company_id",c["id"]).order("as_of_date",desc=True).limit(12).execute().data or []
-    assessment=build_analyst_assessment(snapshots[0]).__dict__ if snapshots else None
+    latest_earnings=(db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).eq("source","massive_benzinga").lte("reported_date",__import__("datetime").date.today().isoformat()).order("reported_date",desc=True).limit(1).execute().data or [])
+    latest_earnings=latest_earnings[0] if latest_earnings else None
+    assessment=build_analyst_assessment(snapshots[0],latest_earnings).__dict__ if snapshots else None
     return {"company":c,"snapshots":snapshots,"analyst_assessment":assessment}
 
 @router.get("/framework")

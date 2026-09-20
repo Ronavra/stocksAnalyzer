@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from ..db.client import get_supabase
+from ..research.analyst import build as build_analyst_assessment
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"])
 
@@ -45,7 +46,8 @@ def company(ticker:str):
     if not companies: raise HTTPException(404,"Company not found")
     c=companies[0]
     snapshots=db.table("research_snapshots").select("*").eq("company_id",c["id"]).order("as_of_date",desc=True).limit(12).execute().data or []
-    return {"company":c,"snapshots":snapshots}
+    assessment=build_analyst_assessment(snapshots[0]).__dict__ if snapshots else None
+    return {"company":c,"snapshots":snapshots,"analyst_assessment":assessment}
 
 @router.get("/framework")
 def framework():

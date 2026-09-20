@@ -16,7 +16,7 @@ async def main():
  ok=failed=saved=0
  for i,c in enumerate(companies):
   if i and a.delay: time.sleep(a.delay)
-  if not c.get("cik"): print(c["ticker"],"missing CIK");failed+=1;continue
+  if not c.get("cik"):\n   c["cik"]=ticker_map.get(c["ticker"])\n   if c.get("cik"): db.table("companies").update({"cik":c["cik"]}).eq("id",c["id"]).execute()\n  if not c.get("cik"): print(c["ticker"],"missing SEC CIK mapping");failed+=1;continue
   try:
    result=await provider.company_facts(c["cik"]);rows=facts_by_period(result.value,a.years);n=0
    for x in rows:

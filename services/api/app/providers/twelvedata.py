@@ -1,4 +1,4 @@
-import os
+import os, asyncio
 from datetime import datetime, timezone
 import httpx
 from .base import MarketDataProvider, ProviderValue, Provenance

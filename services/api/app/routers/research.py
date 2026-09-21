@@ -113,14 +113,16 @@ def signals(limit:int=100):
 @router.get("/scorecard")
 def scorecard():
     db=get_supabase()
-    rows=(db.table("research_predictions").select("actual_return,benchmark_return,excess_return,correct_direction")
-          .not_.is_("evaluated_at","null").execute().data or [])
-    n=len(rows)
-    if not n: return {"evaluated":0,"win_rate":None,"avg_return":None,"median_return":None,"avg_excess_return":None,"beat_spy_rate":None}
+    rows=(db.table("research_predictions").select("horizon_days,actual_return,benchmark_return,excess_return,correct_direction,evaluated_at").execute().data or [])
+    rows=[x for x in rows if x.get("evaluated_at")]
     import statistics
-    rets=[float(x["actual_return"]) for x in rows if x.get("actual_return") is not None]
-    excess=[float(x["excess_return"]) for x in rows if x.get("excess_return") is not None]
-    return {"evaluated":n,"win_rate":sum(bool(x.get("correct_direction")) for x in rows)/n,
-      "avg_return":sum(rets)/len(rets) if rets else None,"median_return":statistics.median(rets) if rets else None,
-      "avg_excess_return":sum(excess)/len(excess) if excess else None,
-      "beat_spy_rate":sum(x>0 for x in excess)/len(excess) if excess else None}
+    def stats(xs):
+        n=len(xs)
+        if not n: return {"evaluated":0,"win_rate":None,"avg_return":None,"median_return":None,"avg_excess_return":None,"beat_spy_rate":None}
+        rets=[float(x["actual_return"]) for x in xs if x.get("actual_return") is not None]
+        excess=[float(x["excess_return"]) for x in xs if x.get("excess_return") is not None]
+        return {"evaluated":n,"win_rate":sum(bool(x.get("correct_direction")) for x in xs)/n,
+          "avg_return":sum(rets)/len(rets) if rets else None,"median_return":statistics.median(rets) if rets else None,
+          "avg_excess_return":sum(excess)/len(excess) if excess else None,
+          "beat_spy_rate":sum(x>0 for x in excess)/len(excess) if excess else None}
+    return {"overall":stats(rows),"by_horizon":{str(h):stats([x for x in rows if x.get("horizon_days")==h]) for h in (5,10,20)}}

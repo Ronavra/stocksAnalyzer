@@ -38,3 +38,9 @@ export async function getSignals(){
 export async function getScorecard(){
  const res=await apiFetch("/api/v1/research/scorecard",{cache:"no-store"}); if(!res?.ok)return {overall:{evaluated:0,win_rate:null,avg_return:null,median_return:null,avg_excess_return:null,beat_spy_rate:null},by_horizon:{}}; return res.json();
 }
+
+export async function getSystemHealth(){
+ const res=await apiFetch("/api/v1/research/system-health",{cache:"no-store"});
+ if(!res?.ok)return {status:"unavailable",last_run:null,latest_price_date:null,latest_feature_date:null};
+ return res.json();
+}

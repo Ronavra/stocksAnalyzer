@@ -23,7 +23,7 @@ if __name__=="__main__":
     run_id=created[0]["id"] if created else None
     try:
         run("ingest_prices.py","--all")
-        run("build_price_features.py")
+        run("build_daily_price_features.py")
         run("scan_setups.py")
         run("evaluate_signals.py")
         check=validate(db)

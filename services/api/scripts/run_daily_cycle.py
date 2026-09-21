@@ -1,7 +1,15 @@
-import subprocess, sys
+import subprocess, sys, traceback
+from datetime import datetime, timezone
 from pathlib import Path
+from dotenv import load_dotenv
 
 HERE=Path(__file__).resolve().parent
+API_DIR=HERE.parent
+sys.path.insert(0,str(API_DIR))
+load_dotenv(API_DIR/".env")
+from app.db.client import get_supabase
+from validate_daily_cycle import validate
+
 PY=sys.executable
 
 def run(name,*args):
@@ -9,9 +17,25 @@ def run(name,*args):
     subprocess.run([PY,str(HERE/name),*args],check=True)
 
 if __name__=="__main__":
-    # End-of-day workflow. Run after US regular-session closing data is available.
-    run("ingest_prices.py","--all")
-    run("build_price_features.py")
-    run("scan_setups.py")
-    run("evaluate_signals.py")
-    print("\nDaily market refresh complete. New weekly signals are intentionally created only by run_weekly_cycle.py.")
+    db=get_supabase()
+    started=datetime.now(timezone.utc).isoformat()
+    created=db.table("pipeline_runs").insert({"pipeline":"daily_market_research","started_at":started,"status":"running"}).execute().data or []
+    run_id=created[0]["id"] if created else None
+    try:
+        run("ingest_prices.py","--all")
+        run("build_price_features.py")
+        run("scan_setups.py")
+        run("evaluate_signals.py")
+        check=validate(db)
+        update={"finished_at":datetime.now(timezone.utc).isoformat(),"status":"success" if check["ok"] else "error",
+                "expected_market_date":check["expected_market_date"],"latest_price_date":check["latest_price_date"],
+                "latest_feature_date":check["latest_feature_date"],"price_companies":check["price_companies"],
+                "feature_companies":check["feature_companies"],"error_message":check["error_message"]}
+        if run_id: db.table("pipeline_runs").update(update).eq("id",run_id).execute()
+        if not check["ok"]: raise RuntimeError(check["error_message"])
+        print("\nDaily market refresh validated successfully.")
+    except Exception as exc:
+        if run_id:
+            db.table("pipeline_runs").update({"finished_at":datetime.now(timezone.utc).isoformat(),"status":"error","error_message":str(exc)[:2000]}).eq("id",run_id).execute()
+        traceback.print_exc()
+        raise

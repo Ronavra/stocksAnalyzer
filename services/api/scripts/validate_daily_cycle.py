@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 API_DIR=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
-from app.db.client import get_supabase
+from app.db.client import get_supabase\nfrom app.market_calendar import latest_completed_session
 
 def latest_expected_market_date():
     # Operational calendar: weekdays minus known full NYSE holidays.
@@ -30,11 +30,11 @@ def validate(db):
     expected=latest_expected_market_date()
     prices=(db.table("price_history").select("price_date,company_id").eq("price_date",expected.isoformat()).execute().data or [])
     features=(db.table("price_features").select("feature_date,company_id").eq("feature_date",expected.isoformat()).execute().data or [])
-    pc=len({x["company_id"] for x in prices}); fc=len({x["company_id"] for x in features})
+    pc=len({x["company_id"] for x in prices}); fc=len({x["company_id"] for x in features})\n    price_ids={x["company_id"] for x in prices}; feature_ids={x["company_id"] for x in features}\n    universe=(db.table("companies").select("id,ticker").or_("is_sp500.eq.true,scoring_profile.eq.benchmark").execute().data or [])\n    missing_prices=[x["ticker"] for x in universe if x["id"] not in price_ids]\n    missing_features=[x["ticker"] for x in universe if x["id"] not in feature_ids]
     # Two known symbol/provider gaps are tolerated; broad-universe freshness is mandatory.
     ok=pc>=500 and fc>=500
     return {"ok":ok,"expected_market_date":expected.isoformat(),"latest_price_date":expected.isoformat() if pc else None,
-            "latest_feature_date":expected.isoformat() if fc else None,"price_companies":pc,"feature_companies":fc,
+            "latest_feature_date":expected.isoformat() if fc else None,"price_companies":pc,"feature_companies":fc,"missing_prices":missing_prices,"missing_features":missing_features,
             "error_message":None if ok else f"Freshness validation failed: expected {expected}; prices={pc}, features={fc}"}
 
 if __name__=="__main__":

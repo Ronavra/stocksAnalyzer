@@ -33,6 +33,8 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
+      - name: Compile critical Python files
+        run: python -m py_compile scripts/run_daily_cycle.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py app/providers/twelvedata.py app/market_calendar.py
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL"

@@ -36,5 +36,5 @@ export async function getSignals(){
  const res=await apiFetch("/api/v1/research/signals",{cache:"no-store"}); if(!res?.ok)return []; return res.json();
 }
 export async function getScorecard(){
- const res=await apiFetch("/api/v1/research/scorecard",{cache:"no-store"}); if(!res?.ok)return {evaluated:0,win_rate:null,avg_return:null,median_return:null,avg_excess_return:null,beat_spy_rate:null}; return res.json();
+ const res=await apiFetch("/api/v1/research/scorecard",{cache:"no-store"}); if(!res?.ok)return {overall:{evaluated:0,win_rate:null,avg_return:null,median_return:null,avg_excess_return:null,beat_spy_rate:null},by_horizon:{}}; return res.json();
 }

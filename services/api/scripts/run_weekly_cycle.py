@@ -11,5 +11,5 @@ def run(name,*args):
 if __name__=="__main__":
     # Run after the normal price/features refresh. Mature old forecasts first, then freeze today's new list.
     run("evaluate_signals.py")
-    run("generate_weekly_signals.py","--top","5","--horizon","5")
+    run("generate_weekly_signals.py","--top","5","--horizons","5","10","20")
     print("\nWeekly prediction cycle complete.")

@@ -1,4 +1,5 @@
-import os, asyncio
+import os
+import asyncio
 from datetime import datetime, timezone
 import httpx
 from .base import MarketDataProvider, ProviderValue, Provenance
@@ -8,14 +9,26 @@ class TwelveDataProvider(MarketDataProvider):
 
     def __init__(self,api_key=None):
         self.api_key=api_key or os.getenv("TWELVE_DATA_API_KEY")
-        if not self.api_key: raise RuntimeError("TWELVE_DATA_API_KEY is not configured")
+        if not self.api_key:
+            raise RuntimeError("TWELVE_DATA_API_KEY is not configured")
 
     async def _get(self,path,**params):
         params["apikey"]=self.api_key
         safe_url=f"{self.BASE_URL}/{path}"
         async with httpx.AsyncClient(timeout=45) as client:
-            r=await client.get(safe_url,params=params)
-            if r.is_error:\n                try:\n                    detail=r.json().get("message")\n                except Exception:\n                    detail=r.text[:300]\n                raise RuntimeError(f"Twelve Data request failed for endpoint '{path}' with HTTP {r.status_code}: {detail}")
+            r=None
+            for attempt in range(3):
+                r=await client.get(safe_url,params=params)
+                if r.status_code not in (429,500,502,503,504):
+                    break
+                if attempt < 2:
+                    await asyncio.sleep(10*(attempt+1))
+            if r.is_error:
+                try:
+                    detail=r.json().get("message")
+                except Exception:
+                    detail=r.text[:300]
+                raise RuntimeError(f"Twelve Data request failed for endpoint '{path}' with HTTP {r.status_code}: {detail}")
             data=r.json()
             if isinstance(data,dict) and data.get("status")=="error":
                 raise RuntimeError(f"Twelve Data error for endpoint '{path}': {data.get('message','unknown provider error')}")

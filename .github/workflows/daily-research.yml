@@ -39,4 +39,7 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$TWELVE_DATA_API_KEY"
       - name: Refresh market research and evaluate matured signals
-        run: python scripts/run_daily_cycle.py\n      - name: Confirm persisted pipeline health\n        if: success()\n        run: python scripts/validate_daily_cycle.py
+        run: python scripts/run_daily_cycle.py
+      - name: Confirm persisted pipeline health
+        if: success()
+        run: python scripts/validate_daily_cycle.py

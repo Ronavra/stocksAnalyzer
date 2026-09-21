@@ -126,3 +126,15 @@ def scorecard():
           "avg_excess_return":sum(excess)/len(excess) if excess else None,
           "beat_spy_rate":sum(x>0 for x in excess)/len(excess) if excess else None}
     return {"overall":stats(rows),"by_horizon":{str(h):stats([x for x in rows if x.get("horizon_days")==h]) for h in (5,10,20)}}
+
+
+@router.get("/system-health")
+def system_health():
+    db=get_supabase()
+    runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
+    latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
+    feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
+    run=runs[0] if runs else None
+    return {"status":run.get("status") if run else "not_run","last_run":run,
+            "latest_price_date":latest[0]["price_date"] if latest else None,
+            "latest_feature_date":feature[0]["feature_date"] if feature else None}

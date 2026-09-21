@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 API_DIR=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
 from app.providers.twelvedata import TwelveDataProvider
+from app.market_calendar import latest_completed_session
 
-db=get_supabase(); provider=TwelveDataProvider(); end=date.today()
+db=get_supabase(); provider=TwelveDataProvider(); end=latest_completed_session()
 
 def parse_args():
  p=argparse.ArgumentParser(description="Incrementally ingest S&P 500 price history in resumable batches")

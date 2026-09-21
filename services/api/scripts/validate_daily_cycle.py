@@ -1,5 +1,6 @@
 import sys
-from datetime import date, datetime, timedelta\nfrom zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -11,7 +12,11 @@ from app.db.client import get_supabase
 def latest_expected_market_date():
     # Operational calendar: weekdays minus known full NYSE holidays.
     # The scheduled job runs after the close, so today is expected on weekdays.
-    ny=datetime.now(ZoneInfo("America/New_York"))\n    d=ny.date()\n    # Before the post-close validation window, the previous completed session is expected.\n    if ny.hour < 17:\n        d-=timedelta(days=1)
+    ny=datetime.now(ZoneInfo("America/New_York"))
+    d=ny.date()
+    # Before the post-close validation window, the previous completed session is expected.
+    if ny.hour < 17:
+        d-=timedelta(days=1)
     holidays={
       date(2026,1,1),date(2026,1,19),date(2026,2,16),date(2026,4,3),
       date(2026,5,25),date(2026,6,19),date(2026,7,3),date(2026,9,7),

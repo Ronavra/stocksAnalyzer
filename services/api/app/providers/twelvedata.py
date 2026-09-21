@@ -15,7 +15,7 @@ class TwelveDataProvider(MarketDataProvider):
         safe_url=f"{self.BASE_URL}/{path}"
         async with httpx.AsyncClient(timeout=45) as client:
             r=await client.get(safe_url,params=params)
-            if r.is_error: raise RuntimeError(f"Twelve Data request failed for endpoint '{path}' with HTTP {r.status_code}")
+            if r.is_error:\n                try:\n                    detail=r.json().get("message")\n                except Exception:\n                    detail=r.text[:300]\n                raise RuntimeError(f"Twelve Data request failed for endpoint '{path}' with HTTP {r.status_code}: {detail}")
             data=r.json()
             if isinstance(data,dict) and data.get("status")=="error":
                 raise RuntimeError(f"Twelve Data error for endpoint '{path}': {data.get('message','unknown provider error')}")
@@ -26,7 +26,7 @@ class TwelveDataProvider(MarketDataProvider):
         return ProviderValue(data,Provenance("twelvedata",url,datetime.now(timezone.utc)))
 
     async def historical_prices(self,ticker,from_date,to_date):
-        data,url=await self._get("time_series",symbol=ticker,interval="1day",start_date=from_date,end_date=to_date,outputsize=5000,order="ASC")
+        data,url=await self._get("time_series",symbol=ticker,interval="1day",start_date=from_date,end_date=to_date,outputsize=5000,order="asc")
         values=data.get("values",[]) if isinstance(data,dict) else []
         rows=[{"date":v.get("datetime"),"open":v.get("open"),"high":v.get("high"),"low":v.get("low"),"close":v.get("close"),"volume":v.get("volume")} for v in values]
         return ProviderValue(rows,Provenance("twelvedata",url,datetime.now(timezone.utc)))

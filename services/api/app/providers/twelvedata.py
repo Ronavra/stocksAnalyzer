@@ -39,7 +39,7 @@ class TwelveDataProvider(MarketDataProvider):
         return ProviderValue(data,Provenance("twelvedata",url,datetime.now(timezone.utc)))
 
     async def historical_prices(self,ticker,from_date,to_date):
-        data,url=await self._get("time_series",symbol=ticker,interval="1day",start_date=from_date,end_date=to_date,outputsize=5000,order="asc",timezone="Exchange")
+        data,url=await self._get("time_series",symbol=ticker,interval="1day",start_date=from_date,end_date=to_date,order="asc")
         values=data.get("values",[]) if isinstance(data,dict) else []
         rows=[{"date":v.get("datetime"),"open":v.get("open"),"high":v.get("high"),"low":v.get("low"),"close":v.get("close"),"volume":v.get("volume")} for v in values]
         return ProviderValue(rows,Provenance("twelvedata",url,datetime.now(timezone.utc)))

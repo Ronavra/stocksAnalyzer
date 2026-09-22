@@ -45,7 +45,8 @@ for idx,c in enumerate(companies):
   payload=[]
   for r in result.value:
    d=r.get("date"); close=r.get("close")
-   if not d or close is None: continue\n   if date.fromisoformat(d)>end: continue
+   if not d or close is None: continue
+   if date.fromisoformat(d)>end: continue
    payload.append({"company_id":c["id"],"price_date":d,"open":r.get("open"),"high":r.get("high"),"low":r.get("low"),"close":close,"volume":r.get("volume"),"source":"twelvedata"})
   for i in range(0,len(payload),250):
    db.table("price_history").upsert(payload[i:i+250],on_conflict="company_id,price_date,source").execute()

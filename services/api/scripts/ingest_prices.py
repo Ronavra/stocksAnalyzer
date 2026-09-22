@@ -30,7 +30,7 @@ elif not args.all:
 print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
 for idx,c in enumerate(companies):
  try:
-  latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).eq("source","twelvedata").order("price_date",desc=True).limit(1).execute().data or [])
+  latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
   # Incremental refresh: fetch from the day after the latest stored bar.
   # A Friday bar must not be treated as current on Monday.

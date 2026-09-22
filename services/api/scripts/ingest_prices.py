@@ -40,7 +40,7 @@ for idx,c in enumerate(companies):
     print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
-  if idx>0 and args.delay>0: time.sleep(args.delay)
+  if requests_made>0 and args.delay>0: time.sleep(args.delay)\n  requests_made+=1
   result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end+timedelta(days=1))))
   payload=[]
   for r in result.value:

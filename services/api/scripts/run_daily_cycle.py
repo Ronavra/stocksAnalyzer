@@ -26,6 +26,9 @@ if __name__=="__main__":
     timings={}
     try:
         timings["ingest_prices_seconds"]=run("ingest_prices.py","--all")
+        price_check=validate(db)
+        if price_check["price_companies"] < 500:
+            raise RuntimeError("Price ingestion incomplete for {}: {} companies; aborting before features/scan".format(price_check["expected_market_date"], price_check["price_companies"]))
         timings["features_seconds"]=run("build_daily_price_features.py")
         timings["scan_seconds"]=run("scan_setups.py")
         timings["evaluation_seconds"]=run("evaluate_signals.py")

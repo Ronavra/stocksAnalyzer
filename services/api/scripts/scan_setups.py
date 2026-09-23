@@ -7,12 +7,10 @@ db=get_supabase()
 companies=(db.table("companies").select("id,ticker").neq("scoring_profile","benchmark").execute().data or [])
 
 def fetch(cid):
- rows=[]; start=0
- while True:
-  b=(db.table("price_features").select("*").eq("company_id",cid).order("feature_date").range(start,start+999).execute().data or [])
-  rows.extend(b)
-  if len(b)<1000: break
-  start+=1000
+ # The setup matcher only needs a bounded recent history. Avoid paginating the
+ # full multi-year feature table for every S&P 500 company on every daily run.
+ rows=(db.table("price_features").select("feature_date,forward_return_5d,drawdown_60d,distance_to_support_60d,rebound_potential_60d").eq("company_id",cid).order("feature_date",desc=True).limit(750).execute().data or [])
+ rows.reverse()
  return rows
 
 ranked=[]

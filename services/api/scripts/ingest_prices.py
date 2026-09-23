@@ -16,7 +16,8 @@ def parse_args():
  p.add_argument("--bootstrap-years",type=int,default=6)
  p.add_argument("--tickers",nargs="*")
  p.add_argument("--delay",type=float,default=8.5,help="Seconds between provider requests")
- p.add_argument("--all",action="store_true",help="Process the full S&P 500 universe plus benchmark")\n p.add_argument("--daily-credit-budget",type=int,default=720,help="Stop before exhausting the Twelve Data Basic daily allowance")
+ p.add_argument("--all",action="store_true",help="Process the full S&P 500 universe plus benchmark")
+ p.add_argument("--daily-credit-budget",type=int,default=720,help="Stop before exhausting the Twelve Data Basic daily allowance")
  return p.parse_args()
 
 args=parse_args()
@@ -40,7 +41,8 @@ for idx,c in enumerate(companies):
     print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
-  if requests_made>0 and args.delay>0: time.sleep(args.delay)\n  requests_made+=1
+  if requests_made>0 and args.delay>0: time.sleep(args.delay)
+  requests_made+=1
   result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end+timedelta(days=1))))
   payload=[]
   for r in result.value:

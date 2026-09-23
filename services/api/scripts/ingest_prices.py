@@ -29,6 +29,7 @@ elif not args.all:
  companies=companies[args.offset:args.offset+args.batch_size]
 
 print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
+requests_made=0
 for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).order("price_date",desc=True).limit(1).execute().data or [])

@@ -11,6 +11,9 @@ class TwelveDataProvider(MarketDataProvider):
         self.api_key=api_key or os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
             raise RuntimeError("TWELVE_DATA_API_KEY is not configured")
+        self.request_attempts_total=0
+        self.last_api_credits_used=None
+        self.last_api_credits_left=None
 
     async def _get(self,path,**params):
         params["apikey"]=self.api_key
@@ -18,7 +21,13 @@ class TwelveDataProvider(MarketDataProvider):
         async with httpx.AsyncClient(timeout=45) as client:
             r=None
             for attempt in range(3):
+                self.request_attempts_total+=1
                 r=await client.get(safe_url,params=params)
+                try:
+                    self.last_api_credits_used=int(r.headers.get("api-credits-used")) if r.headers.get("api-credits-used") is not None else None
+                    self.last_api_credits_left=int(r.headers.get("api-credits-left")) if r.headers.get("api-credits-left") is not None else None
+                except (TypeError,ValueError):
+                    self.last_api_credits_used=self.last_api_credits_left=None
                 if r.status_code not in (429,500,502,503,504):
                     break
                 if attempt < 2:

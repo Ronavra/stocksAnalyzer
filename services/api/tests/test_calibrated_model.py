@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pytest
 
 from app.research import calibrated_model as model
+from app.research.validation_gate import validated_horizons
 
 
 def test_prepare_sector_valuation_uses_sampled_dates(monkeypatch):
@@ -31,3 +32,20 @@ def test_prepare_sector_valuation_uses_sampled_dates(monkeypatch):
     for day in (dates[0],dates[5],dates[6]):
         assert prepared["features"][(1,day)]["valuation_pe_vs_sector"]==pytest.approx(-1/3)
         assert prepared["features"][(2,day)]["valuation_fcf_yield_vs_sector"]==pytest.approx(-0.025)
+
+
+def test_validation_gate_requires_two_recorded_horizons():
+    run={
+        "status":"success","model_version":model.MODEL_VERSION,"best_stage":"price",
+        "results":{"price":{"horizons":{
+            "5":{"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.23,"baseline_brier":0.25},
+            "10":{"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.24,"baseline_brier":0.25},
+            "20":{"beats_baseline":False,"oof_rows":1100,"calibrated_brier":0.26,"baseline_brier":0.25},
+        }}},
+    }
+    assert validated_horizons(run)==(5,10)
+    run["results"]["price"]["horizons"]["10"]["oof_rows"]=999
+    assert validated_horizons(run)==()
+    run["results"]["price"]["horizons"]["10"]["oof_rows"]=1100
+    run["status"]="error"
+    assert validated_horizons(run)==()

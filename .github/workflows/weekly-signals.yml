@@ -16,7 +16,7 @@ permissions:
 jobs:
   freeze:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: services/api
@@ -39,7 +39,7 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$MASSIVE_API_KEY"
       - name: Compile research source refresh files
-        run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/ingest_massive_earnings.py app/providers/sec.py app/providers/massive.py
+        run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/ingest_massive_earnings.py scripts/generate_weekly_signals.py scripts/backtest_calibrated_model.py app/providers/sec.py app/providers/massive.py app/research/calibrated_model.py
       - name: Ensure research sources are fresh
         run: python scripts/refresh_research_sources.py --max-age-hours 4
       - name: Freeze Top 5 at 5d 10d and 20d horizons

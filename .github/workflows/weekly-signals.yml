@@ -24,6 +24,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      SEC_USER_AGENT: "StocksAnalyzer research-app https://github.com/Ronavra/stocksAnalyzer"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,5 +37,10 @@ jobs:
         run: |
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          test -n "$MASSIVE_API_KEY"
+      - name: Compile research source refresh files
+        run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/ingest_massive_earnings.py app/providers/sec.py app/providers/massive.py
+      - name: Ensure research sources are fresh
+        run: python scripts/refresh_research_sources.py --max-age-hours 4
       - name: Freeze Top 5 at 5d 10d and 20d horizons
         run: python scripts/run_weekly_cycle.py

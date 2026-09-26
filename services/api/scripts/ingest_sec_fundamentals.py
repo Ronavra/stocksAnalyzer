@@ -11,7 +11,7 @@ sys.path.insert(0, str(API_DIR))
 load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
-from app.providers.sec import SECProvider, facts_by_period
+from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period
 
 
 async def main():
@@ -22,6 +22,7 @@ async def main():
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--delay", type=float, default=.15)
     p.add_argument("--years", type=int, default=10)
+    p.add_argument("--quarters", type=int, default=16)
     a = p.parse_args()
 
     db = get_supabase()
@@ -61,30 +62,32 @@ async def main():
 
         try:
             result = await provider.company_facts(company["cik"])
-            rows = facts_by_period(result.value, a.years)
+            annual_rows = facts_by_period(result.value, a.years)
+            quarter_rows = quarter_facts_by_period(result.value, a.quarters)
             n = 0
-            for x in rows:
-                payload = {
-                    "company_id": company["id"],
-                    "period_end": x["period_end"],
-                    "period_type": "annual",
-                    "revenue": x.get("revenue"),
-                    "operating_income": x.get("operating_income"),
-                    "net_income": x.get("net_income"),
-                    "eps_diluted": x.get("eps_diluted"),
-                    "free_cash_flow": x.get("free_cash_flow"),
-                    "capex": x.get("capex"),
-                    "cash": x.get("cash"),
-                    "total_debt": x.get("total_debt"),
-                    "source": "sec",
-                }
-                db.table("financial_metrics").upsert(
-                    payload, on_conflict="company_id,period_end,period_type"
-                ).execute()
-                n += 1
+            for period_type, rows in (("annual", annual_rows), ("quarter", quarter_rows)):
+                for x in rows:
+                    payload = {
+                        "company_id": company["id"],
+                        "period_end": x["period_end"],
+                        "period_type": period_type,
+                        "revenue": x.get("revenue"),
+                        "operating_income": x.get("operating_income"),
+                        "net_income": x.get("net_income"),
+                        "eps_diluted": x.get("eps_diluted"),
+                        "free_cash_flow": x.get("free_cash_flow"),
+                        "capex": x.get("capex"),
+                        "cash": x.get("cash"),
+                        "total_debt": x.get("total_debt"),
+                        "source": "sec",
+                    }
+                    db.table("financial_metrics").upsert(
+                        payload, on_conflict="company_id,period_end,period_type"
+                    ).execute()
+                    n += 1
             ok += 1
             saved += n
-            print(company["ticker"], "SEC rows=", n)
+            print(company["ticker"], "SEC annual=", len(annual_rows), "quarter=", len(quarter_rows))
         except Exception as exc:
             failed += 1
             print(company["ticker"], "SEC unavailable:", exc)

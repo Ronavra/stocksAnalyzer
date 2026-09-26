@@ -12,7 +12,7 @@ sys.path.insert(0, str(API_DIR))
 load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
-from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period
+from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
 
@@ -42,6 +42,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
                 q4[field]=float(av)-sum(float(v) for v in vals) if av is not None and all(v is not None for v in vals) else None
             q4["cash"]=a.get("cash")
             q4["total_debt"]=a.get("total_debt")
+            q4["shares_outstanding"]=a.get("shares_outstanding")
             quarters.append(q4)
         prev_end=a_end
 
@@ -57,6 +58,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
             rec[field]=sum(float(v) for v in vals) if all(v is not None for v in vals) else None
         rec["cash"]=window[-1].get("cash")
         rec["total_debt"]=window[-1].get("total_debt")
+        rec["shares_outstanding"]=window[-1].get("shares_outstanding")
         filed=[q.get("filed_date") for q in window if q.get("filed_date")]
         rec["filed_date"]=max(filed) if filed else None
         rec["accn"]=window[-1].get("accn")
@@ -116,6 +118,19 @@ async def main():
             result = await provider.company_facts(company["cik"])
             annual_rows = facts_by_period(result.value, a.years)
             quarter_rows = quarter_facts_by_period(result.value, a.quarters)
+            shares_map = shares_outstanding_by_period(result.value)
+
+            def attach_shares(rows):
+                share_dates=sorted(shares_map)
+                for row in rows:
+                    end=d(row["period_end"])
+                    candidates=[sd for sd in share_dates if d(sd)<=end and (end-d(sd)).days<=150]
+                    if candidates:
+                        row["shares_outstanding"]=shares_map[candidates[-1]].get("shares_outstanding")
+                return rows
+
+            annual_rows=attach_shares(annual_rows)
+            quarter_rows=attach_shares(quarter_rows)
             ttm_rows = build_ttm_rows(annual_rows, quarter_rows)
             captured_at=datetime.now(timezone.utc).isoformat()
             n = 0
@@ -133,6 +148,7 @@ async def main():
                         "capex": x.get("capex"),
                         "cash": x.get("cash"),
                         "total_debt": x.get("total_debt"),
+                        "shares_outstanding": x.get("shares_outstanding"),
                         "source": "sec",
                         "filed_date": x.get("filed_date"),
                         "accession_number": x.get("accn"),

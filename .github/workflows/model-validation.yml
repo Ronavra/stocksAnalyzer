@@ -1,0 +1,42 @@
+name: Predictive Model Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/app/research/calibrated_model.py"
+      - "services/api/scripts/ablation_predictive_model.py"
+      - ".github/workflows/model-validation.yml"
+  schedule:
+    - cron: "23 10 * * 6"
+
+concurrency:
+  group: stocks-analyzer-model-validation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Compile predictive model
+        run: python -m py_compile app/research/calibrated_model.py scripts/ablation_predictive_model.py scripts/generate_weekly_signals.py
+      - name: Validate feature groups out of sample
+        run: python scripts/ablation_predictive_model.py

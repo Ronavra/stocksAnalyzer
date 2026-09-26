@@ -41,6 +41,6 @@ export async function getScorecard(){
 
 export async function getSystemHealth(){
  const res=await apiFetch("/api/v1/research/system-health",{cache:"no-store"});
- if(!res?.ok)return {status:"unavailable",last_run:null,latest_price_date:null,latest_feature_date:null};
+ if(!res?.ok)return {status:"unavailable",last_run:null,latest_price_date:null,latest_feature_date:null,research_sources_run:null,coverage:{universe:503,fundamentals:0,earnings:0,valuation:0,estimates:0}};
  return res.json();
 }

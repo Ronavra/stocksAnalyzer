@@ -35,7 +35,7 @@ jobs:
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
       - name: Compile critical Python files
-        run: python -m py_compile scripts/run_daily_cycle.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/ingest_massive_earnings.py app/providers/twelvedata.py app/providers/sec.py app/providers/massive.py app/market_calendar.py
+        run: python -m py_compile scripts/run_daily_cycle.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/ingest_massive_earnings.py app/providers/twelvedata.py app/providers/sec.py app/providers/massive.py app/market_calendar.py
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL"

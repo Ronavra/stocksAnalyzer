@@ -64,6 +64,7 @@ def main():
         timings["sec_fundamentals_seconds"]=run(
             "ingest_sec_fundamentals.py","--all","--delay","0.16","--years","10","--quarters","16"
         )
+        timings["valuation_seconds"]=run("build_daily_valuation.py")
         # Massive is the paid event source. Incremental mode makes one bulk query
         # for records updated since the previous capture instead of ~500 ticker calls.
         timings["massive_earnings_seconds"]=run(

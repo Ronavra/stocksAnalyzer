@@ -83,5 +83,25 @@ def scorecard():
 
 @router.get("/system-health")
 def system_health():
-    db=get_supabase(); runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or []); latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or []); feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or []); run=runs[0] if runs else None
-    return {"status":run.get("status") if run else "not_run","last_run":run,"latest_price_date":latest[0]["price_date"] if latest else None,"latest_feature_date":feature[0]["feature_date"] if feature else None}
+    db=get_supabase()
+    runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
+    source_runs=(db.table("pipeline_runs").select("*").eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(1).execute().data or [])
+    latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
+    feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
+    audit=db.rpc("research_data_audit").execute().data or {}
+    run=runs[0] if runs else None
+    source_run=source_runs[0] if source_runs else None
+    return {
+        "status":run.get("status") if run else "not_run",
+        "last_run":run,
+        "latest_price_date":latest[0]["price_date"] if latest else None,
+        "latest_feature_date":feature[0]["feature_date"] if feature else None,
+        "research_sources_run":source_run,
+        "coverage":{
+            "universe":audit.get("universe",0),
+            "fundamentals":audit.get("fundamentals",0),
+            "earnings":audit.get("earnings",0),
+            "valuation":audit.get("valuation",0),
+            "estimates":audit.get("estimates",0),
+        },
+    }

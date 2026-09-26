@@ -124,9 +124,20 @@ async def main():
                 share_dates=sorted(shares_map)
                 for row in rows:
                     end=d(row["period_end"])
-                    candidates=[sd for sd in share_dates if d(sd)<=end and (end-d(sd)).days<=150]
+                    filed=d(row["filed_date"]) if row.get("filed_date") else None
+                    candidates=[]
+                    for sd in share_dates:
+                        meta=shares_map[sd]
+                        share_end=d(sd)
+                        share_filed=d(meta["filed"]) if meta.get("filed") else None
+                        if abs((share_end-end).days)>180:
+                            continue
+                        if filed and share_filed and share_filed>filed:
+                            continue
+                        candidates.append(sd)
                     if candidates:
-                        row["shares_outstanding"]=shares_map[candidates[-1]].get("shares_outstanding")
+                        chosen=max(candidates,key=lambda sd:(shares_map[sd].get("filed") or "",sd))
+                        row["shares_outstanding"]=shares_map[chosen].get("shares_outstanding")
                 return rows
 
             annual_rows=attach_shares(annual_rows)

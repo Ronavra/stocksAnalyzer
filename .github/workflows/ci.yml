@@ -29,6 +29,8 @@ jobs:
           scripts/ingest_sec_fundamentals.py
           scripts/generate_weekly_signals.py
           scripts/backtest_calibrated_model.py
+          scripts/ablation_predictive_model.py
+          scripts/build_daily_valuation.py
           app/research/calibrated_model.py
           app/providers/sec.py
           app/providers/twelvedata.py

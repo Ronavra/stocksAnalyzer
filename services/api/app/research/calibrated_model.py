@@ -205,8 +205,22 @@ def load_price_rows(db,years=5):
     latest_date=date.fromisoformat(latest[0]["feature_date"])
     cutoff=(latest_date-timedelta(days=365*years+280)).isoformat()
     cols="company_id,feature_date,close,"+",".join(BASE_PRICE_FEATURES)+",forward_return_5d,forward_return_10d,forward_return_20d"
-    rows=_paged(lambda a,b: db.table("price_features").select(cols)
-        .gte("feature_date",cutoff).order("feature_date").order("company_id").range(a,b))
+    company_ids=[r["id"] for r in (db.table("companies").select("id").execute().data or [])]
+    rows=[]
+    # Fetch per company so PostgreSQL can use the (company_id, feature_date)
+    # index. A single multi-year ordered scan was hitting Supabase's statement timeout.
+    for n,cid in enumerate(company_ids,1):
+        start=0
+        while True:
+            chunk=(db.table("price_features").select(cols)
+                   .eq("company_id",cid).gte("feature_date",cutoff)
+                   .order("feature_date").range(start,start+999).execute().data or [])
+            rows.extend(chunk)
+            if len(chunk)<1000:
+                break
+            start+=1000
+        if n%50==0:
+            print(f"Loaded model price features for {n}/{len(company_ids)} companies",flush=True)
     return rows,latest_date.isoformat()
 
 

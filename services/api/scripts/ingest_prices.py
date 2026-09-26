@@ -42,6 +42,9 @@ for idx,c in enumerate(companies):
     print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
+  if requests_made>=args.daily_credit_budget:
+   print(f"Daily credit budget reached ({requests_made}/{args.daily_credit_budget}). Stop before the Twelve Data Basic daily limit and resume after reset.")
+   break
   if requests_made>0 and args.delay>0: time.sleep(args.delay)
   requests_made+=1
   result=asyncio.run(provider.historical_prices(c["ticker"],str(start),str(end+timedelta(days=1))))

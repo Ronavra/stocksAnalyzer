@@ -218,3 +218,33 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
         if sum(rec.get(k) is not None for k in ("revenue", "operating_income", "net_income", "eps_diluted")) >= 2
     ]
     return sorted(quarterly, key=lambda x: x["period_end"], reverse=True)[:quarters]
+
+
+def shares_outstanding_by_period(data: dict, max_points: int = 40):
+    """Return latest filed common shares outstanding keyed by balance-sheet date."""
+    facts = data.get("facts") or {}
+    candidates = []
+    for namespace, tag in (
+        ("dei", "EntityCommonStockSharesOutstanding"),
+        ("us-gaap", "CommonStocksIncludingAdditionalPaidInCapitalMember"),
+    ):
+        node = ((facts.get(namespace) or {}).get(tag) or {})
+        for x in (node.get("units") or {}).get("shares") or []:
+            if (
+                x.get("form") in ("10-Q","10-Q/A","10-K","10-K/A")
+                and x.get("end")
+                and x.get("val") is not None
+            ):
+                candidates.append(x)
+        if candidates:
+            break
+    out={}
+    for x in candidates:
+        d=x["end"]
+        if d not in out or (x.get("filed") or "") >= (out[d].get("filed") or ""):
+            out[d]={
+                "shares_outstanding":x["val"],
+                "filed":x.get("filed"),
+                "accn":x.get("accn"),
+            }
+    return dict(sorted(out.items(),reverse=True)[:max_points])

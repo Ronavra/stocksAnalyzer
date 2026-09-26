@@ -114,7 +114,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
                 "historical_median_return":r.get("setup_median_return_5d"),
                 "sample_size":r.get("setup_sample_size"),
                 "catalyst":e or None,
-                "model_version":"weekly-signal-v2-calibrated",
+                "model_version":"weekly-signal-v3-calibrated",
                 "model_probability_up":m.get("probability_up"),
                 "model_expected_return":m.get("expected_return"),
                 "model_calibration_brier":diag.get("calibrated_brier"),

@@ -64,10 +64,12 @@ def _paged(query_factory,page_size=1000):
 def load_ttm_fundamentals(db):
     rows=_paged(lambda a,b: db.table("financial_metrics")
         .select("company_id,period_end,filed_date,revenue,operating_income,net_income,eps_diluted,free_cash_flow,cash,total_debt")
-        .eq("period_type","ttm").not_.is_("filed_date","null")
+        .eq("period_type","ttm")
         .order("company_id").order("filed_date").range(a,b))
     by_company={}
     for r in rows:
+        if not r.get("filed_date"):
+            continue
         by_company.setdefault(r["company_id"],[]).append(r)
 
     snapshots={}

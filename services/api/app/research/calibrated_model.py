@@ -35,6 +35,10 @@ FUND_FEATURES=[
     "fund_age_days","fund_revenue_growth_accel","fund_eps_growth_accel",
     "fund_operating_margin_delta","fund_fcf_margin_delta","fund_fcf_to_net_income",
 ]
+VALUATION_FEATURES=[
+    "valuation_pe","valuation_fcf_yield",
+    "valuation_pe_vs_sector","valuation_fcf_yield_vs_sector",
+]
 GUIDANCE_FEATURES=[
     "guidance_eps_gap","guidance_revenue_gap","guidance_eps_change",
     "guidance_revenue_change","guidance_days_since",
@@ -44,12 +48,13 @@ FEATURE_GROUPS={
     "context":CONTEXT_FEATURES,
     "earnings":EARNINGS_FEATURES,
     "fundamentals":FUND_FEATURES,
+    "valuation":VALUATION_FEATURES,
     "guidance":GUIDANCE_FEATURES,
 }
-DEFAULT_GROUPS=("price","context","earnings","fundamentals","guidance")
+DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance")
 FEATURES=[x for g in DEFAULT_GROUPS for x in FEATURE_GROUPS[g]]
 HORIZONS=(5,10,20)
-MODEL_VERSION="calibrated-multifactor-v2"
+MODEL_VERSION="calibrated-multifactor-v3"
 _PREP_CACHE={}
 
 @dataclass
@@ -107,7 +112,7 @@ def _ratio_change(cur,prev):
 
 def load_ttm_fundamentals(db):
     rows=_paged(lambda a,b: db.table("financial_metrics")
-        .select("company_id,period_end,filed_date,revenue,operating_income,net_income,eps_diluted,free_cash_flow,cash,total_debt")
+        .select("company_id,period_end,filed_date,revenue,operating_income,net_income,eps_diluted,free_cash_flow,cash,total_debt,shares_outstanding")
         .eq("period_type","ttm").order("company_id").order("filed_date").range(a,b))
     by_company={}
     for r in rows:
@@ -158,6 +163,9 @@ def load_ttm_fundamentals(db):
                 prev_fcf_margin=ps_fcf/ps_rev if ps_fcf is not None and ps_rev not in (None,0) else None
 
             vals={
+                "_ttm_eps":eps,
+                "_ttm_fcf":fcf,
+                "_shares_outstanding":_num(r.get("shares_outstanding")),
                 "fund_revenue_growth_yoy":revenue_growth,
                 "fund_eps_growth_yoy":eps_growth,
                 "fund_operating_margin":op_margin,
@@ -451,7 +459,39 @@ def _prepare(db,years=5):
         fd.update(earnings_asof(earnings,cid,d))
         fd.update(fundamental_asof(fund,cid,d))
         fd.update(guidance_asof(guidance,cid,d))
+        eps=_num(fd.get("_ttm_eps")); fcf=_num(fd.get("_ttm_fcf")); shares=_num(fd.get("_shares_outstanding")); close=_num(r.get("close"))
+        pe=close/eps if close is not None and eps is not None and eps>0 else None
+        market_cap=close*shares if close is not None and shares is not None and shares>0 else None
+        fcf_yield=fcf/market_cap if fcf is not None and market_cap not in (None,0) else None
+        fd["valuation_pe"]=_clip(pe,0,250) if pe is not None else None
+        fd["valuation_fcf_yield"]=_clip(fcf_yield,-1,1) if fcf_yield is not None else None
+        fd["valuation_pe_vs_sector"]=None
+        fd["valuation_fcf_yield_vs_sector"]=None
         feature_dicts[(cid,d)]=fd
+
+    # Cross-sectional sector-relative valuation, using only point-in-time
+    # fundamentals available on each feature date.
+    rows_by_date={}
+    for r in rows:
+        rows_by_date.setdefault(r["feature_date"],[]).append(r)
+    for d,day_rows in rows_by_date.items():
+        sector_values={}
+        for r in day_rows:
+            cid=r["company_id"]; sector=(companies.get(cid) or {}).get("sector") or "Unknown"
+            fd=feature_dicts[(cid,d)]
+            sector_values.setdefault(sector,{"pe":[],"fy":[]})
+            if fd.get("valuation_pe") is not None:
+                sector_values[sector]["pe"].append(fd["valuation_pe"])
+            if fd.get("valuation_fcf_yield") is not None:
+                sector_values[sector]["fy"].append(fd["valuation_fcf_yield"])
+        for r in day_rows:
+            cid=r["company_id"]; sector=(companies.get(cid) or {}).get("sector") or "Unknown"
+            fd=feature_dicts[(cid,d)]; vals=sector_values.get(sector,{})
+            pe_med=float(np.median(vals.get("pe",[]))) if vals.get("pe") else None
+            fy_med=float(np.median(vals.get("fy",[]))) if vals.get("fy") else None
+            pe=fd.get("valuation_pe"); fy=fd.get("valuation_fcf_yield")
+            fd["valuation_pe_vs_sector"]=pe/pe_med-1 if pe is not None and pe_med not in (None,0) else None
+            fd["valuation_fcf_yield_vs_sector"]=fy-fy_med if fy is not None and fy_med is not None else None
 
     prepared={
         "rows":rows,"latest_date":latest_date,"companies":companies,

@@ -139,7 +139,7 @@ def load_ttm_fundamentals(db):
             prev_rev=_num(prior_yoy.get("revenue")) if prior_yoy else None
             prev_eps=_num(prior_yoy.get("eps_diluted")) if prior_yoy else None
             revenue_growth=_ratio_change(revenue,prev_rev)
-            eps_growth=(eps/abs(prev_eps)-1) if eps is not None and prev_eps not in (None,0) else None
+            eps_growth=(eps-prev_eps)/abs(prev_eps) if eps is not None and prev_eps not in (None,0) else None
             op_margin=op/revenue if op is not None and revenue not in (None,0) else None
             net_margin=net/revenue if net is not None and revenue not in (None,0) else None
             fcf_margin=fcf/revenue if fcf is not None and revenue not in (None,0) else None
@@ -158,7 +158,7 @@ def load_ttm_fundamentals(db):
                 py_rev=_num(ps_yoy.get("revenue")) if ps_yoy else None
                 py_eps=_num(ps_yoy.get("eps_diluted")) if ps_yoy else None
                 prev_growth=_ratio_change(ps_rev,py_rev)
-                prev_eps_growth=(ps_eps/abs(py_eps)-1) if ps_eps is not None and py_eps not in (None,0) else None
+                prev_eps_growth=(ps_eps-py_eps)/abs(py_eps) if ps_eps is not None and py_eps not in (None,0) else None
                 prev_op_margin=ps_op/ps_rev if ps_op is not None and ps_rev not in (None,0) else None
                 prev_fcf_margin=ps_fcf/ps_rev if ps_fcf is not None and ps_rev not in (None,0) else None
 

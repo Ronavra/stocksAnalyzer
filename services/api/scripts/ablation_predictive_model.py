@@ -31,6 +31,11 @@ def stage_score(horizons):
 
 def main():
     db=get_supabase()
+    now=datetime.now(timezone.utc).isoformat()
+    db.table("model_validation_runs").update({
+        "status":"error","finished_at":now,
+        "error_message":"Superseded by a newer model validation run"
+    }).eq("status","running").execute()
     created=(db.table("model_validation_runs").insert({
         "status":"running","model_version":MODEL_VERSION
     }).execute().data or [])

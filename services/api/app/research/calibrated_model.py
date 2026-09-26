@@ -492,7 +492,7 @@ def _prepare(db,years=5):
     # Cross-sectional sector-relative valuation, using only point-in-time
     # fundamentals available on each feature date.
     rows_by_date={}
-    for r in rows:
+    for r in selected_rows:
         rows_by_date.setdefault(r["feature_date"],[]).append(r)
     for d,day_rows in rows_by_date.items():
         sector_values={}

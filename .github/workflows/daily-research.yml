@@ -25,6 +25,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      SEC_USER_AGENT: "StocksAnalyzer research-app https://github.com/Ronavra/stocksAnalyzer"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,14 +35,18 @@ jobs:
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
       - name: Compile critical Python files
-        run: python -m py_compile scripts/run_daily_cycle.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py app/providers/twelvedata.py app/market_calendar.py
+        run: python -m py_compile scripts/run_daily_cycle.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/ingest_massive_earnings.py app/providers/twelvedata.py app/providers/sec.py app/providers/massive.py app/market_calendar.py
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$TWELVE_DATA_API_KEY"
+          test -n "$MASSIVE_API_KEY"
       - name: Refresh market research and evaluate matured signals
         run: python scripts/run_daily_cycle.py
       - name: Confirm persisted pipeline health
         if: success()
         run: python scripts/validate_daily_cycle.py
+      - name: Refresh SEC fundamentals and Massive earnings
+        if: success()
+        run: python scripts/refresh_research_sources.py

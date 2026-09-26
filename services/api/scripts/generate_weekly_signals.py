@@ -10,13 +10,25 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
-from app.research.calibrated_model import MODEL_VERSION, fit_models, predict_current
+from app.research.calibrated_model import DEFAULT_GROUPS, MODEL_VERSION, fit_models, predict_current
 
 def f(v):
     try:
         return float(v) if v is not None else None
     except (TypeError,ValueError):
         return None
+
+def validated_groups(db):
+    rows=(db.table("model_validation_runs")
+          .select("finished_at,best_groups,model_version,status")
+          .eq("status","success").eq("model_version",MODEL_VERSION)
+          .order("finished_at",desc=True).limit(1).execute().data or [])
+    if rows and isinstance(rows[0].get("best_groups"),list) and rows[0]["best_groups"]:
+        return tuple(rows[0]["best_groups"]),rows[0].get("finished_at")
+    # Until the first ablation run completes, avoid optional guidance and use
+    # the strongest no-extra-cost information layers. The Brier gate below
+    # still prevents an unvalidated model from influencing production picks.
+    return ("price","context","earnings","fundamentals"),None
 
 def generate(db,top=5,horizons=(5,10,20),force=False):
     rows=db.rpc("research_dashboard_candidates").execute().data or []
@@ -30,7 +42,9 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
             print(f"Weekly cohort for {signal_date} already exists; preserving frozen selection. Use --force only for an intentional new model cohort.")
             return []
 
-    models,model_meta=fit_models(db)
+    groups,validated_at=validated_groups(db)
+    print("Validated production feature groups=",groups,"validated_at=",validated_at)
+    models,model_meta=fit_models(db,groups=groups)
     predictions,prediction_date=predict_current(db,models) if models else ({},None)
     valid_horizons=[
         h for h,m in models.items()

@@ -229,20 +229,21 @@ def _companies(db):
     return {r["id"]:r for r in rows}
 
 
-def _derived_price_context(rows,companies):
+def _derived_price_context(rows,companies,include_dates):
     by_company={}
     by_date={}
     for r in rows:
         by_company.setdefault(r["company_id"],[]).append(r)
-        by_date.setdefault(r["feature_date"],[]).append(r)
+        if r["feature_date"] in include_dates:
+            by_date.setdefault(r["feature_date"],[]).append(r)
 
     longmom={}
-    price_lookup={}
     for cid,items in by_company.items():
         items=sorted(items,key=lambda x:x["feature_date"])
         for i,r in enumerate(items):
+            if r["feature_date"] not in include_dates:
+                continue
             close=_num(r.get("close"))
-            price_lookup[(cid,r["feature_date"])]=close
             rec={}
             for h in (60,120,250):
                 prev=_num(items[i-h].get("close")) if i>=h else None
@@ -293,7 +294,7 @@ def _derived_price_context(rows,companies):
                 "sector_breadth_positive_20d":s.get("breadth20"),
                 "market_regime_score":sum(regime_parts)/len(regime_parts) if regime_parts else None,
             }
-    return context,by_company,price_lookup
+    return context,by_company
 
 
 def _event_time_before_open(v):
@@ -457,16 +458,21 @@ def _prepare(db,years=5):
     cache_key=(latest_date,years,len(rows))
     if cache_key in _PREP_CACHE:
         return _PREP_CACHE[cache_key]
+    all_dates=sorted({r["feature_date"] for r in rows})
+    sampled_dates={d for i,d in enumerate(all_dates) if i%5==0}
+    if latest_date:
+        sampled_dates.add(latest_date)
     companies=_companies(db)
-    context,by_company,_=_derived_price_context(rows,companies)
+    context,by_company=_derived_price_context(rows,companies,sampled_dates)
     spy_id=next((cid for cid,c in companies.items() if c.get("ticker")=="SPY"),None)
     spy_items=by_company.get(spy_id,[]) if spy_id else []
     fund=load_ttm_fundamentals(db)
     earnings=load_earnings_features(db,by_company,spy_items)
     guidance=load_guidance_features(db)
 
+    selected_rows=[r for r in rows if r["feature_date"] in sampled_dates]
     feature_dicts={}
-    for r in rows:
+    for r in selected_rows:
         cid=r["company_id"]; d=r["feature_date"]
         fd={k:_num(r.get(k)) for k in BASE_PRICE_FEATURES}
         fd.update(context.get((cid,d),{}))
@@ -508,7 +514,7 @@ def _prepare(db,years=5):
             fd["valuation_fcf_yield_vs_sector"]=fy-fy_med if fy is not None and fy_med is not None else None
 
     prepared={
-        "rows":rows,"latest_date":latest_date,"companies":companies,
+        "rows":selected_rows,"all_dates":all_dates,"latest_date":latest_date,"companies":companies,
         "features":feature_dicts,"fundamental_companies":len(fund),
         "earnings_companies":len(earnings),"guidance_companies":len(guidance),
     }
@@ -541,12 +547,11 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
     if not price_rows:
         return {},{"error":"no price features"}
     feature_names=_selected_features(groups)
-    all_dates=sorted({r["feature_date"] for r in price_rows})
+    all_dates=prep["all_dates"]
     date_index={d:i for i,d in enumerate(all_dates)}
-    sampled_dates={d for i,d in enumerate(all_dates) if i%5==0}
     enriched=[
         (r,prep["features"][(r["company_id"],r["feature_date"])])
-        for r in price_rows if r["feature_date"] in sampled_dates
+        for r in price_rows
     ]
 
     models={}

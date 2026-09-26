@@ -42,8 +42,8 @@ for idx,c in enumerate(companies):
     print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
-  if requests_made>=args.daily_credit_budget:
-   print(f"Daily credit budget reached ({requests_made}/{args.daily_credit_budget}). Stop before the Twelve Data Basic daily limit and resume after reset.")
+  if provider.request_attempts_total>=args.daily_credit_budget:
+   print(f"Daily credit budget reached ({provider.request_attempts_total}/{args.daily_credit_budget} HTTP attempts). Stop before the Twelve Data Basic daily limit and resume after reset.")
    break
   if requests_made>0 and args.delay>0: time.sleep(args.delay)
   requests_made+=1
@@ -64,7 +64,7 @@ for idx,c in enumerate(companies):
    break
 
 if args.all:
- print("Full-universe pass complete. Re-run --all later to fill any remaining gaps.")
+ print(f"Full-universe pass complete. Twelve Data HTTP attempts={provider.request_attempts_total}. Re-run --all later to fill any remaining gaps.")
 elif not args.tickers:
  next_offset=args.offset+len(companies)
  print(f"Batch complete. Next command: python scripts\\ingest_prices.py --offset {next_offset} --batch-size {args.batch_size}")

@@ -9,7 +9,8 @@ on:
       - "services/api/scripts/ablation_predictive_model.py"
       - ".github/workflows/model-validation.yml"
   schedule:
-    - cron: "23 10 * * 6"
+    - cron: "15 9 * * 5"
+      timezone: "America/New_York"
 
 concurrency:
   group: stocks-analyzer-model-validation

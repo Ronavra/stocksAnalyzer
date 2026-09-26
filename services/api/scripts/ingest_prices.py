@@ -17,7 +17,7 @@ def parse_args():
  p.add_argument("--tickers",nargs="*")
  p.add_argument("--delay",type=float,default=8.5,help="Seconds between provider requests")
  p.add_argument("--all",action="store_true",help="Process the full S&P 500 universe plus benchmark")
- p.add_argument("--daily-credit-budget",type=int,default=720,help="Stop before exhausting the Twelve Data Basic daily allowance")
+ p.add_argument("--daily-credit-budget",type=int,default=550,help="Conservative cap below the Twelve Data Basic 800/day allowance, including retry attempts")
  return p.parse_args()
 
 args=parse_args()

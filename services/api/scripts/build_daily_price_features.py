@@ -10,7 +10,7 @@ companies=db.table("companies").select("id,ticker").execute().data or []
 def ret(a,b):
     return (b/a)-1 if a not in (None,0) and b is not None else None
 
-def recent_prices(company_id, limit=80):
+def recent_prices(company_id, limit=100):
     rows=(db.table("price_history").select("price_date,open,high,low,close,volume")
           .eq("company_id",company_id).order("price_date",desc=True).limit(limit).execute().data or [])
     by_date={}
@@ -28,9 +28,8 @@ for company in companies:
               .order("feature_date",desc=True).limit(1).execute().data or [])
     latest_feature=existing[0]["feature_date"] if existing else None
     payload=[]
-    # Recompute the newest six sessions: the latest bar plus five trailing rows
-    # whose forward 5-day labels may have just matured.
-    start_i=max(0,len(rows)-6)
+    # Recompute the newest 21 sessions so 5d/10d/20d forward labels mature incrementally.
+    start_i=max(0,len(rows)-21)
     for i in range(start_i,len(rows)):
         r=rows[i]; close=float(r["close"]); volume=float(r["volume"]) if r.get("volume") is not None else None
         r1=ret(float(rows[i-1]["close"]),close) if i>=1 else None
@@ -66,6 +65,8 @@ for company in companies:
             rel_m5=m5-market_m5 if m5 is not None and market_m5 is not None else None
             rel_m20=m20-market_m20 if m20 is not None and market_m20 is not None else None
         fwd=ret(close,float(rows[i+5]["close"])) if i+5<len(rows) else None
+        fwd10=ret(close,float(rows[i+10]["close"])) if i+10<len(rows) else None
+        fwd20=ret(close,float(rows[i+20]["close"])) if i+20<len(rows) else None
         payload.append({"company_id":company["id"],"feature_date":r["price_date"],"close":close,"return_1d":r1,
           "momentum_5d":m5,"momentum_20d":m20,"volatility_20d":vol20,"volume_change_5d":vchg,"range_pct":range_pct,
           "close_vs_sma20":close_vs_sma20,"volume_ratio_20d":volume_ratio_20d,"market_momentum_5d":market_m5,
@@ -73,6 +74,8 @@ for company in companies:
           "relative_momentum_20d":rel_m20,"drawdown_20d":close/high20-1 if high20 else None,
           "drawdown_60d":close/high60-1 if high60 else None,"distance_to_support_60d":close/support60-1 if support60 else None,
           "rebound_potential_20d":high20/close-1 if high20 else None,"rebound_potential_60d":high60/close-1 if high60 else None,
-          "forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None)})
+          "forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None),
+          "forward_return_10d":fwd10,"forward_up_10d":(fwd10>0 if fwd10 is not None else None),
+          "forward_return_20d":fwd20,"forward_up_20d":(fwd20>0 if fwd20 is not None else None)})
     if payload: db.table("price_features").upsert(payload,on_conflict="company_id,feature_date").execute()
     print(company["ticker"],"daily_features=",len(payload),"latest_before=",latest_feature)

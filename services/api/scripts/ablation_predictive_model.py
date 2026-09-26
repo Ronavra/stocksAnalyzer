@@ -18,7 +18,8 @@ STAGES=[
     ("price_context",("price","context")),
     ("price_context_earnings",("price","context","earnings")),
     ("price_context_earnings_fundamentals",("price","context","earnings","fundamentals")),
-    ("full",("price","context","earnings","fundamentals","guidance")),
+    ("price_context_earnings_fundamentals_valuation",("price","context","earnings","fundamentals","valuation")),
+    ("full",("price","context","earnings","fundamentals","valuation","guidance")),
 ]
 
 def stage_score(horizons):

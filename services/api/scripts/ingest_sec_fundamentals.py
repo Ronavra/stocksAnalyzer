@@ -16,6 +16,42 @@ from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_per
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
 
+def upsert_company_metrics(db, company_id, annual_rows, quarter_rows, ttm_rows, captured_at):
+    payloads=[]
+    for period_type, rows in (("annual", annual_rows), ("quarter", quarter_rows), ("ttm", ttm_rows)):
+        for x in rows:
+            payloads.append({
+                "company_id": company_id,
+                "period_end": x["period_end"],
+                "period_type": period_type,
+                "revenue": x.get("revenue"),
+                "operating_income": x.get("operating_income"),
+                "net_income": x.get("net_income"),
+                "eps_diluted": x.get("eps_diluted"),
+                "free_cash_flow": x.get("free_cash_flow"),
+                "capex": x.get("capex"),
+                "cash": x.get("cash"),
+                "total_debt": x.get("total_debt"),
+                "shares_outstanding": x.get("shares_outstanding"),
+                "source": "sec",
+                "filed_date": x.get("filed_date"),
+                "accession_number": x.get("accn"),
+                "captured_at": captured_at,
+            })
+    if payloads:
+        # One database request per company instead of one per filing period.
+        db.table("financial_metrics").upsert(
+            payloads, on_conflict="company_id,period_end,period_type", returning="minimal"
+        ).execute()
+    return len(payloads)
+
+def validate_full_refresh(total, successful, ttm_companies):
+    if not total or successful/total < .90 or ttm_companies/total < .70:
+        raise RuntimeError(
+            f"SEC coverage below minimum: companies={successful}/{total}, "
+            f"TTM companies={ttm_companies}/{total}"
+        )
+
 def d(v):
     return date.fromisoformat(v) if isinstance(v,str) else v
 
@@ -98,7 +134,7 @@ async def main():
         companies = companies[a.offset : a.offset + a.batch_size]
 
     ticker_map = await provider.ticker_map()
-    ok = failed = saved = 0
+    ok = failed = saved = ttm_companies = 0
 
     for i, company in enumerate(companies):
         if i and a.delay:
@@ -144,39 +180,18 @@ async def main():
             quarter_rows=attach_shares(quarter_rows)
             ttm_rows = build_ttm_rows(annual_rows, quarter_rows)
             captured_at=datetime.now(timezone.utc).isoformat()
-            n = 0
-            for period_type, rows in (("annual", annual_rows), ("quarter", quarter_rows), ("ttm", ttm_rows)):
-                for x in rows:
-                    payload = {
-                        "company_id": company["id"],
-                        "period_end": x["period_end"],
-                        "period_type": period_type,
-                        "revenue": x.get("revenue"),
-                        "operating_income": x.get("operating_income"),
-                        "net_income": x.get("net_income"),
-                        "eps_diluted": x.get("eps_diluted"),
-                        "free_cash_flow": x.get("free_cash_flow"),
-                        "capex": x.get("capex"),
-                        "cash": x.get("cash"),
-                        "total_debt": x.get("total_debt"),
-                        "shares_outstanding": x.get("shares_outstanding"),
-                        "source": "sec",
-                        "filed_date": x.get("filed_date"),
-                        "accession_number": x.get("accn"),
-                        "captured_at": captured_at,
-                    }
-                    db.table("financial_metrics").upsert(
-                        payload, on_conflict="company_id,period_end,period_type"
-                    ).execute()
-                    n += 1
+            n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             ok += 1
+            ttm_companies += bool(ttm_rows)
             saved += n
             print(company["ticker"], "SEC annual=", len(annual_rows), "quarter=", len(quarter_rows), "ttm=", len(ttm_rows))
         except Exception as exc:
             failed += 1
             print(company["ticker"], "SEC unavailable:", exc)
 
-    print(f"Done companies_ok={ok} failed={failed} rows_saved={saved}")
+    print(f"Done companies_ok={ok} failed={failed} TTM companies={ttm_companies} rows_saved={saved}")
+    if a.all:
+        validate_full_refresh(len(companies),ok,ttm_companies)
 
 
 if __name__ == "__main__":

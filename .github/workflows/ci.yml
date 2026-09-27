@@ -35,3 +35,5 @@ jobs:
           app/providers/sec.py
           app/providers/twelvedata.py
           app/providers/massive.py
+      - name: Test research model and validation gate
+        run: python -m pytest tests -q

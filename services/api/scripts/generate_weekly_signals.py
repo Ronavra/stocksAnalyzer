@@ -102,7 +102,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
     out=[]
     for rank,(rank_score,r,e,mp,heuristic_score,model_score,ranking_mode) in enumerate(picks[:top],1):
         for horizon in horizons:
-            m=mp.get(horizon) or {}
+            m=(mp.get(horizon) or {}) if horizon in valid_horizons else {}
             diag=m.get("diagnostics") or {}
             rec={
                 "company_id":r["company_id"],
@@ -116,7 +116,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
                 "historical_median_return":r.get("setup_median_return_5d"),
                 "sample_size":r.get("setup_sample_size"),
                 "catalyst":e or None,
-                "model_version":"weekly-signal-v3-calibrated",
+                "model_version":"weekly-signal-v4-calibrated" if ranking_mode=="calibrated_blend" else "weekly-signal-v4-heuristic",
                 "model_probability_up":m.get("probability_up"),
                 "model_expected_return":m.get("expected_return"),
                 "model_calibration_brier":diag.get("calibrated_brier"),

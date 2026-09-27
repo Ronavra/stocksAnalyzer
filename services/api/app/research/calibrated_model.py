@@ -54,7 +54,7 @@ FEATURE_GROUPS={
 DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance")
 FEATURES=[x for g in DEFAULT_GROUPS for x in FEATURE_GROUPS[g]]
 HORIZONS=(5,10,20)
-MODEL_VERSION="calibrated-multifactor-v3"
+MODEL_VERSION="calibrated-multifactor-v4"
 _PREP_CACHE={}
 
 @dataclass
@@ -75,6 +75,8 @@ class HorizonModel:
         return float(self.calibrator.predict_proba(np.asarray([[raw]],dtype=float))[0,1])
 
     def expected_return(self,feature_dict):
+        if not self.diagnostics.get("return_mae_beats_baseline"):
+            return None
         return float(self.regressor.predict(self._array(feature_dict))[0])
 
 
@@ -566,7 +568,8 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
             continue
 
         fold_starts=[int(len(dates)*p) for p in (.58,.70,.82)]
-        raw_oof=[]; y_oof=[]
+        fold_outputs=[]
+        return_holdout_mae=return_baseline_mae=None
         for fi,start in enumerate(fold_starts):
             end=fold_starts[fi+1] if fi+1<len(fold_starts) else len(dates)
             if start>=end:
@@ -585,15 +588,46 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
             yv=np.asarray([target>0 for _,_,target in valid],dtype=int)
             clf=_classifier(); clf.fit(Xtr,ytr)
             raw=clf.predict_proba(Xv)[:,1]
-            raw_oof.extend(raw.tolist()); y_oof.extend(yv.tolist())
+            fold_outputs.append((raw,np.asarray(yv,dtype=int),[z[0]["feature_date"] for z in valid]))
+            if fi==2:
+                train_returns=np.asarray([target for _,_,target in train],dtype=float)
+                valid_returns=np.asarray([target for _,_,target in valid],dtype=float)
+                validation_regressor=_regressor(); validation_regressor.fit(Xtr,train_returns)
+                return_holdout_mae=float(mean_absolute_error(valid_returns,validation_regressor.predict(Xv)))
+                return_baseline_mae=float(mean_absolute_error(
+                    valid_returns,np.full(len(valid_returns),float(train_returns.mean()))
+                ))
 
-        if len(raw_oof)<1000 or len(set(y_oof))<2:
+        # Calibration, feature-group selection and the final audit must use
+        # different chronological periods. Purge observations whose forward
+        # labels cross either boundary before using them to make a decision.
+        if len(fold_outputs)!=3:
             continue
-        raw_arr=np.asarray(raw_oof,dtype=float); y_arr=np.asarray(y_oof,dtype=int)
+        def before_boundary(output,boundary):
+            raw,labels,observation_dates=output
+            cutoff=all_dates[max(0,date_index[boundary]-h)]
+            mask=np.asarray([d<cutoff for d in observation_dates],dtype=bool)
+            return raw[mask],labels[mask]
+
+        calibration_raw,calibration_y=before_boundary(fold_outputs[0],dates[fold_starts[1]])
+        selection_raw,selection_y=before_boundary(fold_outputs[1],dates[fold_starts[2]])
+        holdout_raw,holdout_y,_=fold_outputs[2]
+        if min(len(calibration_y),len(selection_y),len(holdout_y))<1000 or len(set(calibration_y))<2:
+            continue
         calibrator=LogisticRegression(C=1.0,solver="lbfgs")
-        calibrator.fit(raw_arr.reshape(-1,1),y_arr)
-        cal=calibrator.predict_proba(raw_arr.reshape(-1,1))[:,1]
-        base=np.full_like(cal,float(y_arr.mean()),dtype=float)
+        calibrator.fit(calibration_raw.reshape(-1,1),calibration_y)
+        selection_cal=calibrator.predict_proba(selection_raw.reshape(-1,1))[:,1]
+        selection_base=np.full_like(selection_cal,float(calibration_y.mean()),dtype=float)
+        selection_cb=float(brier_score_loss(selection_y,selection_cal))
+        selection_bb=float(brier_score_loss(selection_y,selection_base))
+
+        # Only the pre-holdout predictions train the deployed calibrator.
+        # The final period remains untouched until its Brier score is computed.
+        prior_raw=np.concatenate((calibration_raw,selection_raw))
+        prior_y=np.concatenate((calibration_y,selection_y))
+        calibrator.fit(prior_raw.reshape(-1,1),prior_y)
+        holdout_cal=calibrator.predict_proba(holdout_raw.reshape(-1,1))[:,1]
+        holdout_base=np.full_like(holdout_cal,float(prior_y.mean()),dtype=float)
 
         X=np.asarray([[np.nan if fd.get(k) is None else float(fd[k]) for k in feature_names] for _,fd,_ in data],dtype=float)
         y_cls=np.asarray([target>0 for _,_,target in data],dtype=int)
@@ -601,13 +635,20 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
         clf=_classifier(); clf.fit(X,y_cls)
         reg=_regressor(); reg.fit(X,y_ret)
         tail=min(10000,len(X)); pred_ret=reg.predict(X[-tail:]); actual_ret=y_ret[-tail:]
-        cb=float(brier_score_loss(y_arr,cal)); bb=float(brier_score_loss(y_arr,base))
+        cb=float(brier_score_loss(holdout_y,holdout_cal))
+        bb=float(brier_score_loss(holdout_y,holdout_base))
         diagnostics={
             "model_version":MODEL_VERSION,"horizon_days":h,
-            "training_rows":len(data),"training_dates":len(dates),"oof_rows":len(y_oof),
-            "oof_up_rate":float(y_arr.mean()),"raw_brier":float(brier_score_loss(y_arr,raw_arr)),
+            "evaluation_protocol":"chronological_calibration_selection_holdout_v4",
+            "training_rows":len(data),"training_dates":len(dates),"oof_rows":len(holdout_y),
+            "calibration_rows":len(calibration_y),"selection_rows":len(selection_y),
+            "oof_up_rate":float(holdout_y.mean()),"raw_brier":float(brier_score_loss(holdout_y,holdout_raw)),
+            "selection_calibrated_brier":selection_cb,"selection_baseline_brier":selection_bb,
+            "selection_beats_baseline":bool(selection_cb<selection_bb),
             "calibrated_brier":cb,"baseline_brier":bb,"brier_skill":(bb-cb)/bb if bb else None,
             "calibration_beats_baseline":bool(cb<bb),
+            "return_holdout_mae":return_holdout_mae,"return_baseline_mae":return_baseline_mae,
+            "return_mae_beats_baseline":bool(return_holdout_mae is not None and return_holdout_mae<return_baseline_mae),
             "recent_train_mae":float(mean_absolute_error(actual_ret,pred_ret)),
             "feature_count":len(feature_names),"feature_groups":list(groups or DEFAULT_GROUPS),
         }

@@ -13,12 +13,14 @@ Add these under repository Settings > Secrets and variables > Actions:
 - SUPABASE_SERVICE_ROLE_KEY
 - TWELVE_DATA_API_KEY
 - MASSIVE_API_KEY (optional for the daily price cycle, used by catalyst-aware signal generation)
-- SEC_USER_AGENT (for the SEC filings refresh): identify the application or organization and provide a monitored contact email, for example `StocksAnalyzer research-app admin@your-domain.example`. Set this to your own real address; the checked-in fallback contains only the project URL and may be denied by SEC.
+- SEC_USER_AGENT (for the SEC filings refresh): identify the application or organization and provide a monitored contact email, for example `StocksAnalyzer research-app admin@your-domain.example`. Set this to your own real address. If it is unset, the daily run skips SEC and reports a warning.
 
 Never commit API keys to the repository.
 
 ## Daily workflow
-The daily workflow updates Twelve Data price history, rebuilds price features, rescans the S&P 500 setups, evaluates matured frozen forecasts, and writes results to Supabase. It then refreshes Massive earnings before SEC filings and valuation. SEC access failures still fail the source refresh and remain visible in `pipeline_runs`; the earlier market and earnings writes are preserved.
+The daily workflow updates Twelve Data price history, rebuilds price features, rescans the S&P 500 setups, evaluates matured frozen forecasts, and writes results to Supabase. It then refreshes Massive earnings as a separate tracked step. With a configured SEC_USER_AGENT, it attempts SEC filings and valuation; an SEC failure is recorded in `research_sources_refresh` and reported as a workflow warning without marking the successful market and earnings work as failed. A green daily run therefore does not establish complete fundamentals coverage: check `/research/system-health` and the SEC step or run summary.
+
+After configuring SEC_USER_AGENT, use the separate **SEC Fundamentals Refresh** manual workflow to test SEC access and backfill filings without rerunning price ingestion. This workflow fails if SEC remains unavailable. Do not repeatedly rerun the full daily workflow to diagnose SEC access.
 
 ## Weekly workflow
 The weekly workflow refreshes Massive earnings independently of SEC access, evaluates any matured forecasts, and freezes the Top 5 research signals at 5, 10, and 20 trading-day horizons. A successful earnings-only refresh is stored as `earnings_refresh` and does not count as a successful full `research_sources_refresh`.

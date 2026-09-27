@@ -1,0 +1,41 @@
+name: SEC Fundamentals Refresh
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: stocks-analyzer-market-data
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Validate SEC configuration
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          if [ -z "$SEC_USER_AGENT" ]; then
+            echo "::error::Set SEC_USER_AGENT to an application name and monitored contact email before running SEC ingestion."
+            exit 1
+          fi
+      - name: Refresh SEC fundamentals and valuation
+        run: python scripts/refresh_research_sources.py --sec-only

@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import numpy as np
 import pytest
 
 from app.research import calibrated_model as model
@@ -38,14 +39,63 @@ def test_validation_gate_requires_two_recorded_horizons():
     run={
         "status":"success","model_version":model.MODEL_VERSION,"best_stage":"price",
         "results":{"price":{"horizons":{
-            "5":{"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.23,"baseline_brier":0.25},
-            "10":{"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.24,"baseline_brier":0.25},
-            "20":{"beats_baseline":False,"oof_rows":1100,"calibrated_brier":0.26,"baseline_brier":0.25},
+            "5":{"evaluation_protocol":"chronological_calibration_selection_holdout_v4","selection_beats_baseline":True,"selection_calibrated_brier":0.23,"selection_baseline_brier":0.25,"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.23,"baseline_brier":0.25},
+            "10":{"evaluation_protocol":"chronological_calibration_selection_holdout_v4","selection_beats_baseline":True,"selection_calibrated_brier":0.24,"selection_baseline_brier":0.25,"beats_baseline":True,"oof_rows":1100,"calibrated_brier":0.24,"baseline_brier":0.25},
+            "20":{"evaluation_protocol":"chronological_calibration_selection_holdout_v4","selection_beats_baseline":True,"selection_calibrated_brier":0.24,"selection_baseline_brier":0.25,"beats_baseline":False,"oof_rows":1100,"calibrated_brier":0.26,"baseline_brier":0.25},
         }}},
     }
     assert validated_horizons(run)==(5,10)
     run["results"]["price"]["horizons"]["10"]["oof_rows"]=999
     assert validated_horizons(run)==()
     run["results"]["price"]["horizons"]["10"]["oof_rows"]=1100
+    run["results"]["price"]["horizons"]["10"]["selection_calibrated_brier"]=0.26
+    assert validated_horizons(run)==()
+    run["results"]["price"]["horizons"]["10"]["selection_calibrated_brier"]=0.24
+    run["results"]["price"]["horizons"]["10"]["evaluation_protocol"]="older_in_sample_protocol"
+    assert validated_horizons(run)==()
+    run["results"]["price"]["horizons"]["10"]["evaluation_protocol"]="chronological_calibration_selection_holdout_v4"
     run["status"]="error"
     assert validated_horizons(run)==()
+
+
+def test_final_holdout_rejects_reversed_signal(monkeypatch):
+    """A pattern learned and selected earlier must fail when it reverses later."""
+    days=[(date(2024,1,1)+timedelta(days=i)).isoformat() for i in range(300)]
+    rows=[]; features={}
+    for i,day in enumerate(days):
+        for cid in range(100):
+            signal=1 if cid%2 else -1
+            outcome=signal if i<246 else -signal
+            rows.append({"company_id":cid,"feature_date":day,"forward_return_5d":float(outcome)})
+            features[(cid,day)]={"return_1d":float(signal)}
+
+    monkeypatch.setattr(model,"HORIZONS",(5,))
+    monkeypatch.setattr(model,"_prepare",lambda db,years:{
+        "rows":rows,"all_dates":days,"latest_date":days[-1],"features":features,
+        "fundamental_companies":0,"earnings_companies":0,"guidance_companies":0,
+    })
+
+    class FixedClassifier:
+        def fit(self,x,y):
+            return self
+
+        def predict_proba(self,x):
+            p=np.where(x[:,0]>0,.8,.2)
+            return np.column_stack((1-p,p))
+
+    class ZeroRegressor:
+        def fit(self,x,y):
+            return self
+
+        def predict(self,x):
+            return np.zeros(len(x))
+
+    monkeypatch.setattr(model,"_classifier",FixedClassifier)
+    monkeypatch.setattr(model,"_regressor",ZeroRegressor)
+    models,_=model.fit_models(None,min_rows=1000,groups=("price",))
+    diagnostics=models[5].diagnostics
+    assert diagnostics["selection_beats_baseline"]
+    assert not diagnostics["calibration_beats_baseline"]
+    assert diagnostics["selection_rows"]>=1000
+    assert diagnostics["oof_rows"]>=1000
+    assert models[5].expected_return({"return_1d":1}) is None

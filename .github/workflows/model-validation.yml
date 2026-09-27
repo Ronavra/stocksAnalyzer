@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "services/api/app/research/calibrated_model.py"
+      - "services/api/app/research/validation_gate.py"
       - "services/api/scripts/ablation_predictive_model.py"
       - ".github/workflows/model-validation.yml"
   schedule:
@@ -22,7 +23,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: services/api

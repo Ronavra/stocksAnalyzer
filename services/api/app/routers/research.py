@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from ..db.client import get_supabase
 from ..research.analyst import build as build_analyst_assessment
 from ..research.fundamentals import derive as derive_fundamentals
+from ..research.validation_gate import validated_horizons
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"])
 
@@ -96,13 +97,16 @@ def system_health():
     db=get_supabase()
     runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
     source_runs=(db.table("pipeline_runs").select("*").eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(1).execute().data or [])
-    model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message").order("started_at",desc=True).limit(1).execute().data or [])
+    model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message,results").order("started_at",desc=True).limit(1).execute().data or [])
     latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
     run=runs[0] if runs else None
     source_run=source_runs[0] if source_runs else None
     model_run=model_runs[0] if model_runs else None
+    if model_run:
+        model_run["validated_horizons"]=list(validated_horizons(model_run))
+        model_run.pop("results",None)
     return {
         "status":run.get("status") if run else "not_run",
         "last_run":run,

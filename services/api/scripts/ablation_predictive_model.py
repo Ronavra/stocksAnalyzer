@@ -24,8 +24,8 @@ STAGES=[
 
 def stage_score(horizons):
     vals=[
-        x["calibrated_brier"] for x in horizons.values()
-        if x.get("beats_baseline") and x.get("calibrated_brier") is not None
+        x["selection_calibrated_brier"] for x in horizons.values()
+        if x.get("selection_beats_baseline") and x.get("selection_calibrated_brier") is not None
     ]
     return (sum(vals)/len(vals),len(vals)) if vals else (None,0)
 
@@ -54,6 +54,12 @@ def main():
                     "brier_skill":d.get("brier_skill"),
                     "beats_baseline":d.get("calibration_beats_baseline"),
                     "oof_rows":d.get("oof_rows"),
+                    "selection_calibrated_brier":d.get("selection_calibrated_brier"),
+                    "selection_baseline_brier":d.get("selection_baseline_brier"),
+                    "selection_beats_baseline":d.get("selection_beats_baseline"),
+                    "evaluation_protocol":d.get("evaluation_protocol"),
+                    "return_holdout_mae":d.get("return_holdout_mae"),
+                    "return_baseline_mae":d.get("return_baseline_mae"),
                 }
                 print(
                     f"{name:38} {h:2d}d "
@@ -63,8 +69,8 @@ def main():
             score,n_valid=stage_score(results[name]["horizons"])
             results[name]["mean_valid_brier"]=score
             results[name]["valid_horizons"]=n_valid
-            # Require at least two horizons to beat their base rate. Prefer the
-            # simpler earlier stage unless a later stage improves by >1e-5.
+            # Choose the feature family using the middle period only. The
+            # latest holdout is reserved for the independent promotion gate.
             if n_valid>=2 and score is not None and (best_score is None or score<best_score-1e-5):
                 best_stage=name; best_groups=list(groups); best_score=score
 
@@ -82,6 +88,10 @@ def main():
         if best_stage is None:
             best_stage="price"
             best_groups=["price"]
+        holdout_valid=sum(
+            bool(x.get("beats_baseline") and x.get("oof_rows",0)>=1000)
+            for x in results[best_stage]["horizons"].values()
+        )
         payload={
             "finished_at":datetime.now(timezone.utc).isoformat(),
             "status":"success",
@@ -99,7 +109,7 @@ def main():
             "best_groups":best_groups,
             "results":results,
         },indent=2,default=str),encoding="utf-8")
-        print(f"\nSelected production groups={best_groups} stage={best_stage} mean_valid_brier={best_score}")
+        print(f"\nSelected groups={best_groups} stage={best_stage} selection_brier={best_score} holdout_valid_horizons={holdout_valid}")
         print(f"Saved {out}")
     except Exception as exc:
         if run_id:

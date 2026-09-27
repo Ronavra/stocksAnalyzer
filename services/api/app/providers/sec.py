@@ -11,6 +11,12 @@ class SECProvider:
         url="https://www.sec.gov/files/company_tickers.json"
         async with httpx.AsyncClient(timeout=30,headers={"User-Agent":self.user_agent}) as client:
             r=await client.get(url)
+            if r.status_code in (403,429):
+                raise RuntimeError(
+                    f"SEC ticker map access limited (HTTP {r.status_code}); "
+                    "verify SEC_USER_AGENT identifies the organization and a monitored contact email; "
+                    "if access remains denied, check the runner IP with SEC webmaster"
+                )
             if r.is_error: raise RuntimeError(f"SEC ticker map failed with HTTP {r.status_code}")
             data=r.json()
             return {str(v.get("ticker","")).upper().replace(".","-"):str(v.get("cik_str","")) for v in data.values()}

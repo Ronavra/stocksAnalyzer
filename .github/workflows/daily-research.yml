@@ -25,7 +25,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
-      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'StocksAnalyzer research-app https://github.com/Ronavra/stocksAnalyzer' }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,6 +47,21 @@ jobs:
       - name: Confirm persisted pipeline health
         if: success()
         run: python scripts/validate_daily_cycle.py
-      - name: Refresh SEC fundamentals and Massive earnings
+      - name: Refresh Massive earnings
         if: success()
-        run: python scripts/refresh_research_sources.py
+        run: python scripts/refresh_research_sources.py --earnings-only
+      - name: Refresh SEC fundamentals and valuation
+        id: sec_refresh
+        if: ${{ env.SEC_USER_AGENT != '' }}
+        continue-on-error: true
+        run: python scripts/refresh_research_sources.py --sec-only
+      - name: Report missing SEC contact
+        if: ${{ env.SEC_USER_AGENT == '' }}
+        run: |
+          echo "::warning::SEC refresh skipped. Configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete."
+          echo "SEC refresh skipped: configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"
+      - name: Report SEC access failure
+        if: ${{ steps.sec_refresh.outcome == 'failure' }}
+        run: |
+          echo "::warning::SEC refresh failed. Market data and Massive earnings completed; check the research_sources_refresh pipeline status and SEC step logs. Fundamentals remain incomplete."
+          echo "SEC refresh failed. Market data and Massive earnings completed; see research_sources_refresh status and SEC step logs. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"

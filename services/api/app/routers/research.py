@@ -4,8 +4,9 @@ from ..research.analyst import build as build_analyst_assessment
 from ..research.fundamentals import derive as derive_fundamentals
 from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
+from .retry_clock_skew import RetryClockSkewRoute
 
-router=APIRouter(prefix="/api/v1/research",tags=["research"])
+router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
 @router.get("/candidates")
 def candidates():

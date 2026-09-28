@@ -11,6 +11,7 @@ load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
 from app.research.calibrated_model import MODEL_VERSION, fit_models, predict_current
+from app.research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from app.research.validation_gate import validated_horizons
 
 def f(v):
@@ -54,16 +55,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
     ]
     print("Calibrated model valid horizons=",valid_horizons,"latest_feature_date=",prediction_date)
 
-    ids=[r.get("company_id") for r in rows if r.get("company_id")]
-    earnings={}
-    if ids:
-        ev=(db.table("earnings_events")
-            .select("company_id,reported_date,surprise_percent,revenue_surprise_percent,source")
-            .in_("company_id",ids).eq("source","massive_benzinga")
-            .lte("reported_date",date.today().isoformat())
-            .order("reported_date",desc=True).execute().data or [])
-        for e in ev:
-            earnings.setdefault(e["company_id"],e)
+    earnings=recent_earnings(db,rows)
 
     picks=[]
     for r in rows:
@@ -75,9 +67,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
         if None in (score,up,med,price) or n<50:
             continue
         e=earnings.get(r.get("company_id")) or {}
-        vals=[f(e.get("surprise_percent")),f(e.get("revenue_surprise_percent"))]
-        vals=[x for x in vals if x is not None]
-        adj=max(-8,min(8,sum(max(-20,min(20,x)) for x in vals)/5)) if vals else 0
+        adj=catalyst_adjustment(e)
         heuristic_score=score+adj
         if up<0.52 or med<=0:
             continue

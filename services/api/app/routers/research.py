@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from ..db.client import get_supabase
 from ..research.analyst import build as build_analyst_assessment
 from ..research.fundamentals import derive as derive_fundamentals
+from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"])
@@ -10,17 +11,10 @@ router=APIRouter(prefix="/api/v1/research",tags=["research"])
 def candidates():
     db=get_supabase()
     rows=db.rpc("research_dashboard_candidates").execute().data or []
-    ids=[r.get("company_id") for r in rows if r.get("company_id")]
-    earnings={}
-    if ids:
-        ev=(db.table("earnings_events").select("company_id,reported_date,surprise_percent,revenue_surprise_percent,source").in_("company_id",ids).eq("source","massive_benzinga").lte("reported_date",__import__("datetime").date.today().isoformat()).order("reported_date",desc=True).execute().data or [])
-        for e in ev: earnings.setdefault(e["company_id"],e)
+    earnings=recent_earnings(db,rows)
     result=[{"ticker":r["ticker"],"company":r["company"],"sector":r.get("sector"),"signal":"setup","score":r.get("research_priority_score"),"coverage":r.get("research_priority_coverage"),"catalyst":r.get("research_priority_reason"),"fundamentals":r.get("fundamentals_score"),"valuation":r.get("valuation_score"),"earnings":r.get("earnings_score"),"pe":r.get("pe"),"price_to_fcf":r.get("price_to_fcf"),"as_of_date":r.get("as_of_date"),"opportunity_score":r.get("opportunity_score"),"setup_probability_up":r.get("setup_probability_up"),"setup_median_return_5d":r.get("setup_median_return_5d"),"setup_sample_size":r.get("setup_sample_size"),"upside_to_60d_high":r.get("upside_to_60d_high"),"setup_drawdown_60d":r.get("setup_drawdown_60d"),"opportunity_reason":r.get("opportunity_reason"),"current_price":r.get("current_price"),"price_date":r.get("price_date"),"price_source":r.get("price_source"),"earnings_catalyst":earnings.get(r.get("company_id"))} for r in rows]
-    def catalyst_strength(x):
-        e=x.get("earnings_catalyst") or {}; vals=[float(v) for v in (e.get("surprise_percent"),e.get("revenue_surprise_percent")) if v is not None]
-        return 0 if not vals else max(-8,min(8,sum(max(-20,min(20,v)) for v in vals)/5))
     for x in result:
-        base=x.get("opportunity_score"); x["catalyst_adjustment"]=round(catalyst_strength(x),2); x["research_rank_score"]=round(float(base)+x["catalyst_adjustment"],2) if base is not None else None
+        base=x.get("opportunity_score"); x["catalyst_adjustment"]=round(catalyst_adjustment(x.get("earnings_catalyst")),2); x["research_rank_score"]=round(float(base)+x["catalyst_adjustment"],2) if base is not None else None
     result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
     return result
 

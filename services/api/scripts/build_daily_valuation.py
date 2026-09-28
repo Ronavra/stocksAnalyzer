@@ -11,12 +11,23 @@ load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
 
 SOURCE="sec_price_derived"
+MAX_TTM_AGE_DAYS=540
 
 def num(v):
     try:
         return float(v) if v is not None else None
     except (TypeError,ValueError):
         return None
+
+def recent_ttm(metric,snapshot_date):
+    period=metric.get("period_end")
+    if not period:
+        return False
+    try:
+        age=(date.fromisoformat(str(snapshot_date))-date.fromisoformat(str(period))).days
+    except ValueError:
+        return False
+    return 0<=age<=MAX_TTM_AGE_DAYS
 
 def paged(query_factory,page_size=1000):
     rows=[]; start=0
@@ -44,10 +55,11 @@ def main():
     metrics=paged(lambda a,b: db.table("financial_metrics")
         .select("company_id,period_end,filed_date,eps_diluted,free_cash_flow,shares_outstanding")
         .eq("period_type","ttm").lte("filed_date",snapshot_date)
-        .order("company_id").order("filed_date",desc=True).range(a,b))
+        .order("company_id").order("period_end",desc=True).order("filed_date",desc=True).range(a,b))
     latest_ttm={}
     for r in metrics:
-        latest_ttm.setdefault(r["company_id"],r)
+        if recent_ttm(r,snapshot_date):
+            latest_ttm.setdefault(r["company_id"],r)
 
     payload=[]
     for cid,price in price_by_company.items():
@@ -72,6 +84,14 @@ def main():
             payload[i:i+250],
             on_conflict="company_id,snapshot_date,source"
         ).execute()
+    # This is a replaceable derived layer. Remove today's older snapshot when
+    # its underlying filing is stale or no longer yields a usable multiple.
+    existing=(db.table("valuation_snapshots").select("company_id")
+              .eq("snapshot_date",snapshot_date).eq("source",SOURCE).execute().data or [])
+    current_ids={r["company_id"] for r in payload}
+    invalid_ids=list({r["company_id"] for r in existing}-current_ids)
+    if invalid_ids:
+        db.table("valuation_snapshots").delete().eq("snapshot_date",snapshot_date).eq("source",SOURCE).in_("company_id",invalid_ids).execute()
     print(f"Built {len(payload)} internal valuation snapshots for {snapshot_date} from SEC TTM + latest close")
 
 if __name__=="__main__":

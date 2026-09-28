@@ -18,18 +18,21 @@ def recent_prices(company_id, limit=100):
     return [by_date[d] for d in sorted(by_date)]
 
 benchmark=next((x for x in companies if x["ticker"]=="SPY"),None)
-spy_rows=recent_prices(benchmark["id"]) if benchmark else []
+# New constituents need a full historical feature bootstrap, including
+# point-in-time market context for their older price rows.
+spy_rows=recent_prices(benchmark["id"],limit=2000) if benchmark else []
 spy_by_date={r["price_date"]:i for i,r in enumerate(spy_rows)}
 
 for company in companies:
-    rows=recent_prices(company["id"])
-    if not rows: continue
     existing=(db.table("price_features").select("feature_date").eq("company_id",company["id"])
               .order("feature_date",desc=True).limit(1).execute().data or [])
     latest_feature=existing[0]["feature_date"] if existing else None
+    rows=recent_prices(company["id"],limit=2000 if not latest_feature else 100)
+    if not rows: continue
     payload=[]
-    # Recompute the newest 21 sessions so 5d/10d/20d forward labels mature incrementally.
-    start_i=max(0,len(rows)-21)
+    # Bootstrap every historical date for a newly joined constituent. Daily
+    # updates still recompute just 21 sessions to mature forward labels.
+    start_i=max(0,len(rows)-21) if latest_feature else 0
     for i in range(start_i,len(rows)):
         r=rows[i]; close=float(r["close"]); volume=float(r["volume"]) if r.get("volume") is not None else None
         r1=ret(float(rows[i-1]["close"]),close) if i>=1 else None
@@ -77,5 +80,6 @@ for company in companies:
           "forward_return_5d":fwd,"forward_up_5d":(fwd>0 if fwd is not None else None),
           "forward_return_10d":fwd10,"forward_up_10d":(fwd10>0 if fwd10 is not None else None),
           "forward_return_20d":fwd20,"forward_up_20d":(fwd20>0 if fwd20 is not None else None)})
-    if payload: db.table("price_features").upsert(payload,on_conflict="company_id,feature_date").execute()
+    for i in range(0,len(payload),250):
+        db.table("price_features").upsert(payload[i:i+250],on_conflict="company_id,feature_date").execute()
     print(company["ticker"],"daily_features=",len(payload),"latest_before=",latest_feature)

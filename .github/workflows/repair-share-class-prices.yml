@@ -1,12 +1,11 @@
-name: SEC Fundamentals Refresh
+name: Repair Share Class Prices
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "services/api/app/providers/sec.py"
-      - "services/api/scripts/ingest_sec_fundamentals.py"
+      - "services/api/app/providers/twelvedata.py"
 
 concurrency:
   group: stocks-analyzer-market-data
@@ -16,16 +15,16 @@ permissions:
   contents: read
 
 jobs:
-  refresh:
+  repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: services/api
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,13 +33,18 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
-      - name: Validate SEC configuration
+      - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
-          if [ -z "$SEC_USER_AGENT" ]; then
-            echo "::error::Set SEC_USER_AGENT to an application name and monitored contact email before running SEC ingestion."
-            exit 1
-          fi
-      - name: Refresh SEC fundamentals and valuation
-        run: python scripts/refresh_research_sources.py --sec-only
+          test -n "$TWELVE_DATA_API_KEY"
+      - name: Backfill both class share prices
+        run: python scripts/ingest_prices.py --tickers BF-B BRK-B
+      - name: Rebuild price features
+        run: python scripts/build_daily_price_features.py
+      - name: Rescan opportunities
+        run: python scripts/scan_setups.py
+      - name: Update internal valuations
+        run: python scripts/build_daily_valuation.py
+      - name: Confirm price and feature coverage
+        run: python scripts/validate_daily_cycle.py

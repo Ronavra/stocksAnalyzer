@@ -32,7 +32,9 @@ def test_company_filing_rows_use_one_upsert_request():
 
 def test_full_refresh_rejects_empty_ttm_coverage():
     with pytest.raises(RuntimeError,match="TTM companies=0/503"):
-        validate_full_refresh(503,503,0)
+        validate_full_refresh(503,503,0,0)
     with pytest.raises(RuntimeError,match="companies=100/503"):
-        validate_full_refresh(503,100,400)
-    validate_full_refresh(503,500,450)
+        validate_full_refresh(503,100,400,300)
+    with pytest.raises(RuntimeError,match="latest TTM FCF companies=13/503"):
+        validate_full_refresh(503,500,450,13)
+    validate_full_refresh(503,500,450,300)

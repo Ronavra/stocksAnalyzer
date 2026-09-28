@@ -129,8 +129,9 @@ def facts_by_period(data: dict, years: int = 10):
 def quarter_facts_by_period(data: dict, quarters: int = 16):
     """Extract discrete 10-Q quarter facts plus quarter-end balance-sheet values.
 
-    Duration facts are restricted to roughly one quarter (60-120 days), which
-    avoids accidentally storing year-to-date 10-Q values as single-quarter data.
+    Most duration facts are reported for one quarter (60-120 days). Cash-flow
+    facts are commonly year-to-date, so derive Q2/Q3 by subtracting the
+    preceding cumulative filing from the same fiscal year.
     """
     facts = (data.get("facts") or {}).get("us-gaap") or {}
     aliases = {
@@ -207,6 +208,49 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):
                     rec["accn"] = x["accn"]
+
+    for key in ("operating_cash_flow", "capex"):
+        # A 10-Q cash-flow statement usually contains Q1, first-half, and
+        # nine-month totals. Never store Q2/Q3 cumulative totals as quarters.
+        direct_ends={end for end,rec in out.items() if rec.get(key) is not None}
+        for tag in aliases[key]:
+            cumulative=[]
+            for x in ((facts.get(tag) or {}).get("units") or {}).get("USD") or []:
+                if (x.get("form") not in ("10-Q", "10-Q/A")
+                    or x.get("fp") not in ("Q1", "Q2", "Q3")
+                    or not x.get("start") or not x.get("end")
+                    or not x.get("filed") or x.get("val") is None):
+                    continue
+                try:
+                    days=(datetime.fromisoformat(x["end"])-datetime.fromisoformat(x["start"])).days
+                except ValueError:
+                    continue
+                if 60<=days<=310:
+                    cumulative.append(x)
+            if not cumulative:
+                continue
+            for current in cumulative:
+                fp=current["fp"]
+                if fp not in ("Q2", "Q3"):
+                    continue
+                days=(datetime.fromisoformat(current["end"])-datetime.fromisoformat(current["start"])).days
+                if days<130:
+                    continue
+                previous_fp="Q1" if fp=="Q2" else "Q2"
+                previous=[x for x in cumulative
+                          if x["start"]==current["start"] and x["fp"]==previous_fp
+                          and x["end"]<current["end"] and x["filed"]<=current["filed"]
+                          and 60<=(datetime.fromisoformat(current["end"])-datetime.fromisoformat(x["end"])).days<=120]
+                if not previous:
+                    continue
+                prior=max(previous,key=lambda x:(x["end"],x["filed"]))
+                rec=out.setdefault(current["end"],{"period_end":current["end"]})
+                marker="_filed_"+key
+                # Prefer an explicitly reported single-quarter amount, if any.
+                if current["end"] not in direct_ends and current["filed"]>=rec.get(marker,""):
+                    rec[key]=float(current["val"])-float(prior["val"])
+                    rec[marker]=current["filed"]
+                    rec["filed_date"]=max(rec.get("filed_date") or "",current["filed"])
 
     for rec in out.values():
         if rec.get("debt_total") is not None:

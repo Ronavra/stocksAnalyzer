@@ -22,6 +22,8 @@ The daily workflow updates Twelve Data price history, rebuilds price features, r
 
 After configuring SEC_USER_AGENT, use the separate **SEC Fundamentals Refresh** manual workflow to test SEC access and backfill filings without rerunning price ingestion. This workflow fails if SEC remains unavailable. Do not repeatedly rerun the full daily workflow to diagnose SEC access.
 
+Changes to the SEC filing extractor also start this refresh on main. Its full-universe validation checks company, TTM and latest TTM free-cash-flow coverage. A successful SEC refresh starts out-of-sample model validation on the newly loaded fundamentals. Changes to the Twelve Data symbol adapter trigger a focused share-class price repair, feature rebuild and setup rescan; the regular daily workflow then keeps them current.
+
 ## Weekly workflow
 The weekly workflow refreshes Massive earnings independently of SEC access, evaluates any matured forecasts, and freezes the Top 5 research signals at 5, 10, and 20 trading-day horizons. A successful earnings-only refresh is stored as `earnings_refresh` and does not count as a successful full `research_sources_refresh`.
 

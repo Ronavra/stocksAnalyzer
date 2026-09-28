@@ -45,11 +45,13 @@ def upsert_company_metrics(db, company_id, annual_rows, quarter_rows, ttm_rows, 
         ).execute()
     return len(payloads)
 
-def validate_full_refresh(total, successful, ttm_companies):
-    if not total or successful/total < .90 or ttm_companies/total < .70:
+def validate_full_refresh(total, successful, ttm_companies, ttm_fcf_companies):
+    if (not total or successful/total < .90 or ttm_companies/total < .70
+        or ttm_fcf_companies/total < .50):
         raise RuntimeError(
             f"SEC coverage below minimum: companies={successful}/{total}, "
-            f"TTM companies={ttm_companies}/{total}"
+            f"TTM companies={ttm_companies}/{total}, "
+            f"latest TTM FCF companies={ttm_fcf_companies}/{total}"
         )
 
 def d(v):
@@ -134,7 +136,7 @@ async def main():
         companies = companies[a.offset : a.offset + a.batch_size]
 
     ticker_map = await provider.ticker_map()
-    ok = failed = saved = ttm_companies = 0
+    ok = failed = saved = ttm_companies = ttm_fcf_companies = 0
 
     for i, company in enumerate(companies):
         if i and a.delay:
@@ -183,15 +185,16 @@ async def main():
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             ok += 1
             ttm_companies += bool(ttm_rows)
+            ttm_fcf_companies += bool(ttm_rows and ttm_rows[-1].get("free_cash_flow") is not None)
             saved += n
             print(company["ticker"], "SEC annual=", len(annual_rows), "quarter=", len(quarter_rows), "ttm=", len(ttm_rows))
         except Exception as exc:
             failed += 1
             print(company["ticker"], "SEC unavailable:", exc)
 
-    print(f"Done companies_ok={ok} failed={failed} TTM companies={ttm_companies} rows_saved={saved}")
+    print(f"Done companies_ok={ok} failed={failed} TTM companies={ttm_companies} latest_TTM_FCF={ttm_fcf_companies} rows_saved={saved}")
     if a.all:
-        validate_full_refresh(len(companies),ok,ttm_companies)
+        validate_full_refresh(len(companies),ok,ttm_companies,ttm_fcf_companies)
 
 
 if __name__ == "__main__":

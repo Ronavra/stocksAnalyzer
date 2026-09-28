@@ -22,10 +22,14 @@ def validate(db):
     universe=(db.table("companies").select("id,ticker").or_("is_sp500.eq.true,scoring_profile.eq.benchmark").execute().data or [])
     missing_prices=[x["ticker"] for x in universe if x["id"] not in price_ids]
     missing_features=[x["ticker"] for x in universe if x["id"] not in feature_ids]
-    pc=len(price_ids); fc=len(feature_ids)
-    ok=pc>=500 and fc>=500
+    current_ids={x["id"] for x in universe}
+    # Removed constituents may still have a price bar on this date. Count only
+    # the current universe and require every member (plus SPY) to be fresh.
+    pc=len(price_ids & current_ids); fc=len(feature_ids & current_ids)
+    ok=len(universe)>=500 and not missing_prices and not missing_features
     error=None if ok else (
-        f"Freshness validation failed: expected {expected}; prices={pc}, features={fc}; "
+        f"Freshness validation failed: expected {expected}; current_universe={len(universe)}; "
+        f"prices={pc}, features={fc}; "
         f"missing_prices={missing_prices[:20]}; missing_features={missing_features[:20]}"
     )
     return {"ok":ok,"expected_market_date":ds,

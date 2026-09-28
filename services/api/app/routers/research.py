@@ -27,9 +27,14 @@ def candidates():
 @router.get("/data-audit")
 def data_audit():
     db=get_supabase(); d=db.rpc("research_data_audit").execute().data or {}; total=d.get("universe",0)
-    def item(key,label,status):
-        count=d.get(key,0); return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":round(100*count/total,1) if total else 0,"status":status}
-    return {"universe":total,"layers":[item("prices","Daily prices","strong"),item("features","Price features","strong"),item("setups","Current setup metrics","strong"),item("fundamentals","Fundamentals","partial"),item("valuation","Valuation","partial"),item("estimates","Analyst estimates","partial"),item("earnings","Historical earnings events","partial")],"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":["Price/setup data is the strongest current layer.","Fundamentals, valuation, estimates and earnings-event coverage are currently pilot-scale."]}
+    def item(key,label):
+        count=d.get(key,0); pct=round(100*count/total,1) if total else 0
+        return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
+    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Analyst estimates"),item("earnings","Historical earnings events")]
+    notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
+    if d.get("estimates",0)<total*.95:
+        notes.append("Analyst estimate coverage is limited; rankings do not assume missing estimates are zero.")
+    return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes}
 
 @router.get("/companies-search")
 def companies_search(q:str=""):

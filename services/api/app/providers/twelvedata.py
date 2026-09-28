@@ -7,6 +7,12 @@ from .base import MarketDataProvider, ProviderValue, Provenance
 class TwelveDataProvider(MarketDataProvider):
     BASE_URL="https://api.twelvedata.com"
 
+    @staticmethod
+    def provider_symbol(ticker):
+        # The company table uses SEC-style share classes (BRK-B/BF-B), while
+        # Twelve Data publishes these NYSE instruments as BRK.B/BF.B.
+        return ticker.replace("-", ".")
+
     def __init__(self,api_key=None):
         self.api_key=api_key or os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
@@ -44,11 +50,11 @@ class TwelveDataProvider(MarketDataProvider):
             return data,safe_url
 
     async def quote(self,ticker):
-        data,url=await self._get("quote",symbol=ticker)
+        data,url=await self._get("quote",symbol=self.provider_symbol(ticker))
         return ProviderValue(data,Provenance("twelvedata",url,datetime.now(timezone.utc)))
 
     async def historical_prices(self,ticker,from_date,to_date):
-        data,url=await self._get("time_series",symbol=ticker,interval="1day",start_date=from_date,end_date=to_date,order="asc")
+        data,url=await self._get("time_series",symbol=self.provider_symbol(ticker),interval="1day",start_date=from_date,end_date=to_date,order="asc")
         values=data.get("values",[]) if isinstance(data,dict) else []
         rows=[{"date":v.get("datetime"),"open":v.get("open"),"high":v.get("high"),"low":v.get("low"),"close":v.get("close"),"volume":v.get("volume")} for v in values]
         return ProviderValue(rows,Provenance("twelvedata",url,datetime.now(timezone.utc)))

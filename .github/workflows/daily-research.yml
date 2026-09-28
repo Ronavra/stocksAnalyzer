@@ -3,8 +3,8 @@ name: Daily Market Research
 on:
   workflow_dispatch:
   schedule:
-    - cron: "37 17 * * 1-5"
-      timezone: "America/New_York"
+    - cron: "0 8 * * *"
+      timezone: "Asia/Jerusalem"
 
 concurrency:
   group: stocks-analyzer-market-data

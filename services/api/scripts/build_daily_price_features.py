@@ -3,6 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 API_DIR=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
+from app.research.price_window import recent_distinct_prices
 
 db=get_supabase()
 companies=db.table("companies").select("id,ticker").execute().data or []
@@ -11,11 +12,11 @@ def ret(a,b):
     return (b/a)-1 if a not in (None,0) and b is not None else None
 
 def recent_prices(company_id, limit=100):
-    rows=(db.table("price_history").select("price_date,open,high,low,close,volume")
-          .eq("company_id",company_id).order("price_date",desc=True).limit(limit).execute().data or [])
-    by_date={}
-    for row in rows: by_date[row["price_date"]]=row
-    return [by_date[d] for d in sorted(by_date)]
+    def fetch_page(offset, page_size):
+        return (db.table("price_history").select("price_date,open,high,low,close,volume")
+                .eq("company_id",company_id).order("price_date",desc=True)
+                .order("source",desc=True).range(offset,offset+page_size-1).execute().data or [])
+    return recent_distinct_prices(fetch_page, limit=limit)
 
 benchmark=next((x for x in companies if x["ticker"]=="SPY"),None)
 # New constituents need a full historical feature bootstrap, including

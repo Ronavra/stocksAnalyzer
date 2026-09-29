@@ -11,6 +11,7 @@ class Query:
         self.company_id = None
         self.desc = False
         self.count = None
+        self.window = None
         self.payload = None
 
     def select(self, *args):
@@ -21,11 +22,16 @@ class Query:
         return self
 
     def order(self, field, desc=False):
-        self.desc = desc
+        if field in ("price_date", "feature_date"):
+            self.desc = desc
         return self
 
     def limit(self, count):
         self.count = count
+        return self
+
+    def range(self, start, end):
+        self.window = (start, end)
         return self
 
     def upsert(self, payload, **kwargs):
@@ -43,6 +49,9 @@ class Query:
         else:
             rows = self.db.existing.get(self.company_id, [])
         rows = sorted(rows, key=lambda r: r.get("price_date", r.get("feature_date", "")), reverse=self.desc)
+        if self.window is not None:
+            start, end = self.window
+            rows = rows[start:end + 1]
         return type("Result", (), {"data": rows[:self.count] if self.count else rows})()
 
 

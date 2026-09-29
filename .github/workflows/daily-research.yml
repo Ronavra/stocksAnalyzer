@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 8 * * *"
       timezone: "Asia/Jerusalem"
+    # GitHub can drop runs at the top of an hour. This trigger is a fallback.
+    - cron: "17 8 * * *"
+      timezone: "Asia/Jerusalem"
 
 concurrency:
   group: stocks-analyzer-market-data
@@ -42,21 +45,25 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$TWELVE_DATA_API_KEY"
           test -n "$MASSIVE_API_KEY"
+      - name: Skip duplicate scheduled refresh
+        id: daily_gate
+        run: python scripts/daily_run_gate.py
       - name: Refresh market research and evaluate matured signals
+        if: steps.daily_gate.outputs.run == 'true'
         run: python scripts/run_daily_cycle.py
       - name: Confirm persisted pipeline health
-        if: success()
+        if: success() && steps.daily_gate.outputs.run == 'true'
         run: python scripts/validate_daily_cycle.py
       - name: Refresh Massive earnings
-        if: success()
+        if: success() && steps.daily_gate.outputs.run == 'true'
         run: python scripts/refresh_research_sources.py --earnings-only
       - name: Refresh SEC fundamentals and valuation
         id: sec_refresh
-        if: ${{ env.SEC_USER_AGENT != '' }}
+        if: ${{ steps.daily_gate.outputs.run == 'true' && env.SEC_USER_AGENT != '' }}
         continue-on-error: true
         run: python scripts/refresh_research_sources.py --sec-only
       - name: Report missing SEC contact
-        if: ${{ env.SEC_USER_AGENT == '' }}
+        if: ${{ steps.daily_gate.outputs.run == 'true' && env.SEC_USER_AGENT == '' }}
         run: |
           echo "::warning::SEC refresh skipped. Configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete."
           echo "SEC refresh skipped: configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"

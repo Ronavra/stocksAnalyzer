@@ -20,6 +20,12 @@ def f(v):
     except (TypeError,ValueError):
         return None
 
+def current_candidates(rows):
+    """Use only setups calculated from the most recent market close."""
+    signal_date=max((str(r.get("price_date") or "") for r in rows),default="")
+    return signal_date,[r for r in rows if str(r.get("price_date") or "")==signal_date
+                        and str(r.get("as_of_date") or "")==signal_date]
+
 def validated_groups(db):
     rows=(db.table("model_validation_runs")
           .select("started_at,finished_at,best_stage,best_groups,results,model_version,status")
@@ -36,7 +42,9 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
     rows=db.rpc("research_dashboard_candidates").execute().data or []
     if not rows:
         return []
-    signal_date=max(str(r.get("price_date") or r.get("as_of_date") or "") for r in rows)
+    signal_date,rows=current_candidates(rows)
+    if not rows:
+        raise RuntimeError(f"No current setup snapshots for the latest price date {signal_date}")
     if not force and signal_date:
         existing=(db.table("research_predictions").select("id,model_version")
                   .eq("signal_date",signal_date).limit(1).execute().data or [])

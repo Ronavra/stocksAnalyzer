@@ -2,10 +2,12 @@ name: Daily Market Research
 
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Run again even if today's daily refresh already started"
+        type: boolean
+        default: false
   schedule:
-    - cron: "0 8 * * *"
-      timezone: "Asia/Jerusalem"
-    # GitHub can drop runs at the top of an hour. This trigger is a fallback.
     - cron: "17 8 * * *"
       timezone: "Asia/Jerusalem"
 
@@ -29,6 +31,7 @@ jobs:
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FORCE_DAILY_REFRESH: ${{ inputs.force || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +48,7 @@ jobs:
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$TWELVE_DATA_API_KEY"
           test -n "$MASSIVE_API_KEY"
-      - name: Skip duplicate scheduled refresh
+      - name: Skip duplicate daily refresh
         id: daily_gate
         run: python scripts/daily_run_gate.py
       - name: Refresh market research and evaluate matured signals

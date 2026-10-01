@@ -3,9 +3,9 @@
 StocksAnalyzer uses GitHub Actions so the research database can refresh without a local computer.
 
 ## Schedule
-- Daily Market Research: Monday-Friday at 17:37 America/New_York, after the regular market close.
+- Daily Market Research: one scheduled trigger every day at 08:17 Asia/Jerusalem. GitHub Actions may start a scheduled run later than the cron time.
 - Weekly Signal Freeze: Friday at 20:17 America/New_York, after the daily refresh has had time to finish.
-- Both workflows also support manual runs from GitHub Actions.
+- Both workflows also support manual runs from GitHub Actions. A manual daily run skips the refresh if one has already started on that Israel date; select the explicit `force` input only when a rerun is intended.
 
 ## Required GitHub Actions repository secrets
 Add these under repository Settings > Secrets and variables > Actions:

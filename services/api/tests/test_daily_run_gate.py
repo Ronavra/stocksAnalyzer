@@ -34,18 +34,30 @@ class Db:
         return self.query
 
 
-def test_backup_skips_when_primary_already_started():
+def test_schedule_skips_when_daily_already_started():
     now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
     db = Db([datetime(2026, 9, 29, 5, 1, tzinfo=timezone.utc)])
     assert not should_run(db, "schedule", now)
 
 
-def test_backup_runs_when_no_attempt_today():
+def test_schedule_runs_when_no_attempt_today():
     now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
     db = Db([datetime(2026, 9, 28, 5, 1, tzinfo=timezone.utc)])
     assert should_run(db, "schedule", now)
 
 
-def test_manual_dispatch_can_rerun():
+def test_manual_dispatch_skips_after_daily_started():
     now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
-    assert should_run(None, "workflow_dispatch", now)
+    db = Db([datetime(2026, 9, 29, 4, 0, tzinfo=timezone.utc)])
+    assert not should_run(db, "workflow_dispatch", now)
+
+
+def test_manual_dispatch_can_force_an_explicit_rerun():
+    now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
+    assert should_run(None, "workflow_dispatch", now, force=True)
+
+
+def test_early_manual_run_is_counted_on_same_israel_day():
+    now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
+    db = Db([datetime(2026, 9, 28, 22, 30, tzinfo=timezone.utc)])
+    assert not should_run(db, "schedule", now)

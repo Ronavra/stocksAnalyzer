@@ -3,8 +3,10 @@ name: Weekly Signal Freeze
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 20 * * 5"
-      timezone: "America/New_York"
+    # Saturday's 08:17 Israel daily refresh collects Friday's US close.
+    # Allow its 180-minute timeout plus a buffer; the job also checks DB freshness.
+    - cron: "17 12 * * 6"
+      timezone: "Asia/Jerusalem"
 
 concurrency:
   group: stocks-analyzer-market-data
@@ -41,5 +43,5 @@ jobs:
         run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/ingest_massive_earnings.py scripts/generate_weekly_signals.py scripts/backtest_calibrated_model.py app/providers/sec.py app/providers/massive.py app/research/calibrated_model.py
       - name: Ensure research sources are fresh
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
-      - name: Freeze Top 5 at 5d 10d and 20d horizons
+      - name: Freeze up to 5 research candidates at 5d 10d and 20d horizons
         run: python scripts/run_weekly_cycle.py

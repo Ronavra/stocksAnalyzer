@@ -4,6 +4,7 @@ from ..research.analyst import build as build_analyst_assessment
 from ..research.fundamentals import derive as derive_fundamentals
 from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
+from ..research.signal_history import complete_oldest_signal_cohort
 from .retry_clock_skew import RetryClockSkewRoute
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
@@ -61,6 +62,7 @@ def framework(): return {"dimensions":["fundamentals","valuation","earnings/revi
 @router.get("/signals")
 def signals(limit:int=100):
     db=get_supabase(); rows=(db.table("research_predictions").select("*,companies(ticker,name,sector)").order("signal_date",desc=True).order("rank").limit(min(max(limit,1),500)).execute().data or [])
+    rows=complete_oldest_signal_cohort(db,rows)
     ids=list({x.get("company_id") for x in rows if x.get("company_id")}); latest={}
     if ids:
         prices=(db.table("price_history").select("company_id,price_date,close").in_("company_id",ids).order("price_date",desc=True).execute().data or [])

@@ -41,7 +41,7 @@ def validated_groups(db):
 def generate(db,top=5,horizons=(5,10,20),force=False):
     rows=db.rpc("research_dashboard_candidates").execute().data or []
     if not rows:
-        return []
+        raise RuntimeError("No setup snapshots available; weekly cohort not published")
     signal_date,rows=current_candidates(rows)
     if not rows:
         raise RuntimeError(f"No current setup snapshots for the latest price date {signal_date}")
@@ -96,6 +96,8 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
         picks.append((rank_score,r,e,mp,heuristic_score,model_score,ranking_mode))
 
     picks.sort(key=lambda x:x[0],reverse=True)
+    if not picks:
+        raise RuntimeError(f"No qualifying candidates for market close {signal_date}; weekly cohort not published")
     today=date.today().isoformat()
     out=[]
     for rank,(rank_score,r,e,mp,heuristic_score,model_score,ranking_mode) in enumerate(picks[:top],1):
@@ -127,6 +129,10 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
                     "model_score":model_score,
                     "training":diag,
                     "model_meta":model_meta,
+                    "selection_context":{
+                        "upside_to_60d_high":r.get("upside_to_60d_high"),
+                        "drawdown_60d":r.get("setup_drawdown_60d"),
+                    },
                 },
             }
             db.table("research_predictions").upsert(

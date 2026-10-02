@@ -28,6 +28,8 @@ jobs:
           scripts/build_daily_price_features.py
           scripts/ingest_sec_fundamentals.py
           scripts/generate_weekly_signals.py
+          scripts/run_weekly_cycle.py
+          scripts/validate_daily_cycle.py
           scripts/backtest_calibrated_model.py
           scripts/ablation_predictive_model.py
           scripts/build_daily_valuation.py
@@ -37,3 +39,19 @@ jobs:
           app/providers/massive.py
       - name: Test research model and validation gate
         run: python -m pytest tests -q
+
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install --no-audit --no-fund
+      - name: Build and typecheck web application
+        run: npm run build

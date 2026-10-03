@@ -5,6 +5,7 @@ from ..research.fundamentals import derive as derive_fundamentals
 from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
 from ..research.signal_history import complete_oldest_signal_cohort
+from ..research.signal_prices import load_price_timelines
 from ..research.current_valuation import current_valuations
 from ..research.financial_ranking import load_inputs, rank_candidates, WEIGHTS, POLICY_VERSION
 from ..research.analyst_consensus import load_snapshots, consensus_score
@@ -104,15 +105,7 @@ def framework(): return {"dimensions":["fundamentals","valuation","earnings/revi
 def signals(limit:int=100):
     db=get_supabase(); rows=(db.table("research_predictions").select("*,companies(ticker,name,sector)").order("signal_date",desc=True).order("rank").limit(min(max(limit,1),500)).execute().data or [])
     rows=complete_oldest_signal_cohort(db,rows)
-    ids=list({x.get("company_id") for x in rows if x.get("company_id")}); latest={}
-    if ids:
-        prices=(db.table("price_history").select("company_id,price_date,close").in_("company_id",ids).order("price_date",desc=True).execute().data or [])
-        for p in prices: latest.setdefault(p["company_id"],p)
-    for x in rows:
-        p=latest.get(x.get("company_id")); x["current_price"]=p.get("close") if p else None; x["current_price_date"]=p.get("price_date") if p else None
-        entry=x.get("entry_price")
-        x["return_since_signal"]=(float(x["current_price"])/float(entry)-1) if p and entry not in (None,0) else None
-    return rows
+    return load_price_timelines(db,rows)
 
 @router.get("/scorecard")
 def scorecard():

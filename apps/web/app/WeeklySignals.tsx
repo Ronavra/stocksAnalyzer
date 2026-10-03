@@ -2,12 +2,21 @@ import Link from "next/link";
 import AnalystConsensus from "./AnalystConsensus";
 import type {AnalystConsensus as Consensus} from "@/lib/api";
 
+type PriceWindow = {price: number | null; date: string | null; status: "complete" | "pending" | "missing" | "calendar_unavailable"};
+
 type Signal = {
   id: number;
   signal_date: string;
   horizon_days: number;
   rank: number | null;
   entry_price: number | null;
+  exit_price?: number | null;
+  exit_date?: string | null;
+  recommendation_price?: number | null;
+  recommendation_price_date?: string | null;
+  change_since_recommendation?: number | null;
+  trading_days_elapsed?: number | null;
+  price_windows?: Record<string, PriceWindow>;
   current_price: number | null;
   current_price_date: string | null;
   return_since_signal: number | null;
@@ -45,6 +54,16 @@ const money = (value: number | null | undefined) =>
   value == null ? "—" : `$${Number(value).toFixed(2)}`;
 const factorNames:Record<string,string>={revenue_growth:"Revenue growth",eps_growth:"EPS growth",operating_margin:"Operating margin",net_margin:"Net margin",operating_margin_change:"Operating margin change",net_margin_change:"Net margin change",fcf_margin:"FCF margin",cash_conversion:"Cash conversion",net_debt_to_fcf:"Net debt / FCF",earnings_yield:"Earnings yield",fcf_yield:"FCF yield"};
 
+function PriceCell({price, date}: {price: number | null | undefined; date: string | null | undefined}) {
+  return <><b className="closePrice">{money(price)}</b><small className="priceDate">{date ?? "Date unavailable"}</small>{price == null && <small className="priceMissing">Price unavailable</small>}</>;
+}
+
+function WindowCell({window, elapsed, horizon}: {window?: PriceWindow; elapsed?: number | null; horizon: number}) {
+  if (window?.status === "complete") return <PriceCell price={window.price} date={window.date}/>;
+  if (window?.status === "pending") return <><span className="pricePending">Pending</span><small className="priceDate">{Math.min(elapsed ?? 0, horizon)} / {horizon} trading days</small></>;
+  return <><span className="priceMissing">{window?.status === "missing" ? "Price missing" : "Data unavailable"}</span><small className="priceDate">{window?.date ?? "Check data health"}</small></>;
+}
+
 export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; scorecard: Scorecard}) {
   const dates = Array.from(new Set(signals.map(row => row.signal_date))).sort().reverse();
   const cohorts = dates.map(date => {
@@ -58,17 +77,26 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
   });
 
   return <section className="panel" aria-label="Weekly research shortlist">
-    <div className="panelHead"><div><p className="eyebrow">FROZEN RESEARCH SHORTLIST</p><h2>Weekly candidates</h2></div><p className="muted">Ranked for 5 trading days. Up to five qualify; companies can repeat. The list stays frozen while prices and evaluated results update.</p></div>
-    <div className="scoreGrid">{[5, 10, 20].map(horizon => {
-      const score = scorecard.by_horizon?.[String(horizon)];
-      return <article key={horizon}><span>{horizon} trading days · observed results</span><strong>{score?.evaluated ? pct(score.win_rate) : "Pending"}</strong><small>{score?.evaluated ? `${score.evaluated} evaluated · ${pct(score.avg_excess_return)} average vs SPY` : "Waiting for matured signals"}</small></article>;
-    })}</div>
-    <p className="muted">A historical replay (2024–September 2026) trailed SPY over 5, 10 and 20 trading days. It uses current index members and backfilled earnings, so it is descriptive research rather than a validated forecast. <a href="https://github.com/Ronavra/stocksAnalyzer/actions/runs/36480208583">Review the replay</a>.</p>
+    <div className="panelHead"><div><p className="eyebrow">WEEKLY PRICE TRACKER</p><h2>Recommended stocks</h2></div><p className="muted">Open a weekly group to compare its prices.</p></div>
+    <p className="timelineNote">Closing prices in USD. Windows count 5, 10 and 20 trading days after the recommendation date.</p>
     {cohorts.length ? cohorts.map((cohort, index) => {
       const previousTickers = new Set(cohorts[index + 1]?.stocks.map(stock => stock.ticker) ?? []);
-      return <div className="weeklyCohort" key={cohort.date}>
-        <div className="weeklyHead"><div><b>{index === 0 ? "Latest frozen shortlist" : "Earlier shortlist"}</b><span>Selection close: {cohort.date} · {cohort.stocks.length} of 5 qualified</span></div></div>
-        {cohort.stocks.length < 5 && <p className="muted">Only {cohort.stocks.length} candidates passed the selection rules. No stocks were added to fill the list.</p>}
+      return <details className="cohortAccordion" key={cohort.date}>
+        <summary><span className="cohortLabel"><b>Week of {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span>{index === 0 && <span className="latestTag">Latest group</span>}<span className="accordionChevron" aria-hidden="true">⌄</span></summary>
+        <div className="cohortBody">
+          <div className="tableScroll" role="region" aria-label={`Prices for recommendations dated ${cohort.date}`} tabIndex={0}>
+            <table className="priceTimeline"><caption className="srOnly">Recommendation and subsequent closing prices for {cohort.date}</caption><thead><tr><th scope="col">Stock</th><th scope="col">At recommendation</th><th scope="col">After 5 days</th><th scope="col">After 10 days</th><th scope="col">After 20 days</th><th scope="col">Latest daily close</th><th scope="col">Change since recommendation</th></tr></thead><tbody>
+              {cohort.stocks.map(({ticker, main}) => <tr key={ticker}>
+                <th scope="row" className="timelineStock"><span className="weeklyRank">#{main.rank ?? "—"}</span> <Link href={`/company/${encodeURIComponent(ticker)}`} className="ticker">{ticker}</Link><small>{main.companies?.name}</small></th>
+                <td><PriceCell price={main.recommendation_price} date={main.recommendation_price_date ?? cohort.date}/></td>
+                {[5, 10, 20].map(horizon => <td key={horizon}><WindowCell window={main.price_windows?.[String(horizon)]} elapsed={main.trading_days_elapsed} horizon={horizon}/></td>)}
+                <td className="latestPriceCell"><PriceCell price={main.current_price} date={main.current_price_date}/></td>
+                <td className={main.change_since_recommendation == null ? "" : main.change_since_recommendation >= 0 ? "positive" : "negative"}>{pct(main.change_since_recommendation)}</td>
+              </tr>)}
+            </tbody></table>
+          </div>
+          <details className="researchDetails"><summary>Research, selection weights and model evaluation</summary>
+          <p className="muted">Original selection evidence is frozen for this group. Evaluation results follow its original entry policy.</p>
         <div className="weeklyCards">{cohort.stocks.map(({ticker, main, horizons}) => {
           const drawdown = main.model_diagnostics?.selection_context?.drawdown_60d;
           const repeat = previousTickers.has(ticker);
@@ -87,11 +115,20 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
             {delayed && <p className="muted">Selection close {money(main.model_diagnostics?.selection_close)} · {cohort.date}. Evaluation enters at the next session close and holds for 5/10/20 trading days. Outcomes deduct a 0.2% cost assumption.</p>}
             <div className="priceCompare"><div><small>{delayed ? `Evaluation entry · ${main.model_diagnostics?.execution_entry_date ?? "pending next close"}` : `Selection close · ${cohort.date}`}</small><b>{money(main.entry_price)}</b></div><span>→</span><div><small>Latest close · {main.current_price_date ?? "—"}</small><b>{money(main.current_price)}</b></div></div>
             <div className="weeklyMeta"><span>{ranker ? "Ranking score (basis points)" : "Research rank score"} {main.research_score == null ? "—" : Number(main.research_score).toFixed(1)}</span><span className={main.return_since_signal == null ? "" : main.return_since_signal >= 0 ? "positive" : "negative"}>{delayed ? "Since entry (gross)" : "Since selection"} {pct(main.return_since_signal)}</span></div>
-            <div className="horizonGrid">{horizons.map(horizon => <div key={horizon.id} className={`horizon ${horizon.actual_return == null ? "pending" : "done"}`}><b>{horizon.horizon_days} days</b><span>{horizon.model_probability_up == null ? "No validated P↑" : `Model P↑ ${pct(horizon.model_probability_up)}`}</span>{horizon.model_expected_return != null && <small>Model expected {pct(horizon.model_expected_return)}</small>}<small>{horizon.actual_return == null ? "Outcome pending" : `Observed ${pct(horizon.actual_return)}`}</small>{horizon.excess_return != null && <small>{pct(horizon.excess_return)} vs SPY</small>}</div>)}</div>
+            <div className="horizonGrid">{horizons.map(horizon => <div key={horizon.id} className={`horizon ${horizon.actual_return == null ? "pending" : "done"}`}><b>{horizon.horizon_days} days</b><span>{horizon.model_probability_up == null ? "No validated P↑" : `Model P↑ ${pct(horizon.model_probability_up)}`}</span>{horizon.model_expected_return != null && <small>Model expected {pct(horizon.model_expected_return)}</small>}<small>{horizon.actual_return == null ? "Outcome pending" : `Observed ${pct(horizon.actual_return)}`}</small>{horizon.exit_date && <small>Exit {money(horizon.exit_price)} · {horizon.exit_date}</small>}{horizon.excess_return != null && <small>{pct(horizon.excess_return)} vs SPY</small>}</div>)}</div>
           </article>;
         })}</div>
-      </div>;
+          </details>
+        </div>
+      </details>;
     }) : <p className="muted">No shortlist has passed the validated weekly freeze yet.</p>}
+    <details className="researchDetails"><summary>Historical performance and evaluation methodology</summary>
+    <div className="scoreGrid">{[5, 10, 20].map(horizon => {
+      const score = scorecard.by_horizon?.[String(horizon)];
+      return <article key={horizon}><span>{horizon} trading days · observed results</span><strong>{score?.evaluated ? pct(score.win_rate) : "Pending"}</strong><small>{score?.evaluated ? `${score.evaluated} evaluated · ${pct(score.avg_excess_return)} average vs SPY` : "Waiting for matured signals"}</small></article>;
+    })}</div>
+    <p className="muted">A historical replay (2024–September 2026) trailed SPY over 5, 10 and 20 trading days. It uses current index members and backfilled earnings, so it is descriptive research rather than a validated forecast. <a href="https://github.com/Ronavra/stocksAnalyzer/actions/runs/36480208583">Review the replay</a>.</p>
     <p className="muted">A stock may appear again in a later week. Historical setup rates are descriptive and are not model probabilities. Older cohorts retain their original close-to-close evaluation; new cohorts use next-session entry and costs.</p>
+    </details>
   </section>;
 }

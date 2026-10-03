@@ -42,6 +42,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
         "ticker":p["row"].get("ticker"),"company_id":p["row"]["company_id"],
         "score":p["score"],"financial":p["financial"],"contributions":p["contributions"],
         "technical_score":p["technical_score"],"earnings_score":p["earnings_score"],
+        "analyst":p["analyst"],
     } for p in picks]}
     (API_DIR/"financial_selection.json").write_text(json.dumps(report,indent=2)+"\n")
     print("Financial weekly selection:",json.dumps(summary),flush=True)
@@ -53,9 +54,11 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
             "validated_forecast":False,"primary_horizon_days":5,
             "entry_policy":"next_session_close","round_trip_cost":ROUND_TRIP_COST,
             "selection_close":row.get("current_price"),
+            "decision_at":summary["decision_at"],
             "financial_ranking":{"policy_version":summary["policy_version"],"weights":summary["weights"],
                 **p["financial"],"technical_score":p["technical_score"],"earnings_score":p["earnings_score"],
                 "earnings_available":p["earnings_available"],"contributions":p["contributions"]},
+            "analyst_consensus":p["analyst"],
             "selection_context":{"upside_to_60d_high":row.get("upside_to_60d_high"),"drawdown_60d":row.get("setup_drawdown_60d")},
         }
         for horizon in horizons:

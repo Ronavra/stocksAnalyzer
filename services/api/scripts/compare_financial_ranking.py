@@ -40,6 +40,7 @@ def compare(prepared,inputs):
         if r["date"] in by_date:
             by_date[r["date"]].append(r)
     cohorts=[]; excluded=Counter(); candidate_weeks=0
+    analyst_weeks=0
     for anchor,records in by_date.items():
         rows=[]; earnings={}; lookup={r["company_id"]:r for r in records}
         baseline=sorted((r for r in records if r["screen_score"] is not None),
@@ -54,6 +55,8 @@ def compare(prepared,inputs):
             if event:
                 earnings[r["company_id"]]=event
         picks,summary=rank_candidates(rows,inputs,anchor,earnings,live=False)
+        if summary.get("analyst_status",{}).get("current",0):
+            analyst_weeks+=1
         if summary["ranking_eligible"]:
             candidate_weeks+=1
         chosen=[lookup[p["row"]["company_id"]] for p in picks]
@@ -64,7 +67,8 @@ def compare(prepared,inputs):
                         "financial_eligible":summary["financial_eligible"],
                         "financial_picks":[p["row"]["company_id"] for p in picks]})
     return {"policy_version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
-            "evaluation_protocol":"fixed_financial_policy_next_close_5d_v1","entry_policy":"next_session_close",
+            "evaluation_protocol":"fixed_financial_analyst_next_close_5d_v2","entry_policy":"next_session_close",
+            "analyst_observed_weeks":analyst_weeks,"analyst_comparison_ready":analyst_weeks>=26,
             "round_trip_cost":ROUND_TRIP_COST,"latest_price_date":prepared["latest_date"],
             "attempted_weeks":len(dates),"weeks_with_qualifying_financial_candidates":candidate_weeks,
             "excluded":dict(excluded),"holdout_start":holdout_start,
@@ -78,6 +82,7 @@ def compare(prepared,inputs):
                 "Historical constituents/sectors use today's universe; earnings can include provider revisions.",
                 "The outcome period has been inspected in prior research; the last 20% is a descriptive audit, not a new untouched test.",
                 "This comparison does not approve a return forecast. Frozen forward outcomes are required.",
+                "Analyst consensus requires actual capture timestamps. Backfilled monthly rows cannot be treated as known then; missing historical observations are neutral, so this replay does not establish analyst value.",
             ]}
 
 
@@ -88,7 +93,7 @@ def main():
         "started_at":datetime.now(timezone.utc).isoformat()}).execute().data or []
     run_id=created[0]["id"] if created else None
     try:
-        report=compare(prepare(db),load_inputs(db))
+        report=compare(prepare(db),load_inputs(db,analyst_history=True))
         (API_DIR/"financial_ranking_comparison.json").write_text(json.dumps(report,indent=2)+"\n")
         if run_id:
             db.table("pipeline_runs").update({"status":"success","finished_at":datetime.now(timezone.utc).isoformat(),"metadata":report}).eq("id",run_id).execute()

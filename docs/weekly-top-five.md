@@ -7,8 +7,8 @@ separate measurements and do not get averaged into the ranking.
 
 ## Active financial policy
 
-`financial-priority-v1` uses fixed user weights: **50% financial, 40% price
-setup, 10% recent earnings surprise**. This is a research policy, not a fitted
+`financial-analyst-priority-v2` uses fixed user weights: **45% financial, 35% price
+setup, 10% analyst consensus, 10% recent earnings surprise**. This is a research policy, not a fitted
 or calibrated return forecast. Financial factors compare sector percentiles:
 revenue/EPS growth, operating/net margins, operating-margin change, FCF margin
 and conversion, net debt/FCF, earnings yield and FCF yield. Negative EPS is a
@@ -26,8 +26,34 @@ There is no padding to five or rotation restriction.
 
 Selection refreshes SEC/earnings checks, records factors, component contributions,
 coverage, report dates and audit time, and preserves frozen older cohorts.
-`--dry-run` previews without DB changes. New v6 cohorts use next-session-close
+`--dry-run` previews without DB changes. New v7 cohorts use next-session-close
 entry and 5/10/20-day evaluation by the daily cycle.
+
+`refresh_analyst_consensus.py` collects the current universe daily and before
+weekly selection. Without a Finnhub key it uses Yahoo Finance through pinned
+yfinance (personal research, unofficial integration). If `FINNHUB_API_KEY` is
+configured, it uses the official recommendation-trends endpoint; access and
+coverage remain dependent on that account. No paid endpoint is activated.
+Install `services/api/sql/analyst_consensus.sql` before running the new version.
+This table is insert-only for the backend service role, with RLS and no public
+client grants. Observations retain provider month and actual collection time
+separately. Older monthly rows collected today are not historical knowledge.
+
+The analyst score maps strong buy/buy/hold/sell/strong sell to 100/75/50/25/0,
+averages the counts and shrinks toward 50 by N/(N+5). It needs three analysts,
+capture within seven days and provider month within 45 days. Missing, invalid,
+stale or thin coverage is neutral 50, explicitly flagged; its fixed 10% is not
+redistributed. Current price targets are stored only on the current provider
+month, displayed as supplementary evidence, and do not enter the score. Live
+snapshots must precede the actual decision timestamp; historical replay requires
+capture before that anchor's US market close. Backfilled rows never enter old
+signals. Existing v6 (50/40/10) and older cohorts remain frozen.
+
+Refresh reports separate successful execution from complete/partial coverage,
+list missing/error counts and abort repeated source failures without inventing
+data. Price/financial cycles continue with a flagged neutral analyst component.
+The new collection starts now; no historical improvement for analyst weights
+is claimed. The existing v1 replay describes the older financial-only policy.
 
 `compare_financial_ranking.py` replays fixed weights against the previous screen
 with filing-date availability, delayed entry, 0.2% costs and paired outcomes.
@@ -97,7 +123,7 @@ tracked before confidence in the strategy increases.
 
 ## Live ledger
 
-New v5/v6 cohorts store the selection close separately and leave `entry_price`
+New v5/v6/v7 cohorts store the selection close separately and leave `entry_price`
 empty until the next session closes. The daily evaluator fills that entry and
 uses the same SPY session calendar. It evaluates 5/10/20 full trading days from
 entry and deducts the 0.2% assumed round-trip cost. Older cohorts preserve their

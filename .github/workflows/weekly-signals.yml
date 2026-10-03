@@ -27,6 +27,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,6 +47,9 @@ jobs:
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
       - name: Verify SEC fundamentals before financial ranking
         run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
+      - name: Refresh free analyst consensus before selection
+        continue-on-error: true
+        run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
       - name: Freeze up to 5 research candidates at 5d 10d and 20d horizons
         run: python scripts/run_weekly_cycle.py
       - uses: actions/upload-artifact@v4

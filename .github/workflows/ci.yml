@@ -37,6 +37,9 @@ jobs:
           app/research/weekly_ranker.py
           app/research/financial_ranking.py
           scripts/compare_financial_ranking.py
+          scripts/refresh_analyst_consensus.py
+          app/research/analyst_consensus.py
+          app/providers/analyst_consensus.py
           app/research/weekly_rank_metrics.py
           app/research/signal_execution.py
           scripts/validate_weekly_ranker.py

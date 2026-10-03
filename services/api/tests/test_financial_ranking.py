@@ -29,10 +29,10 @@ def inputs_and_candidates(count=10,sector="Industrials"):
 def test_stronger_financials_outweigh_a_better_technical_score():
     inputs,rows=inputs_and_candidates()
     rows[-1]["opportunity_score"]=60
-    rows[4]["opportunity_score"]=100
+    rows[5]["opportunity_score"]=100
     picks,summary=finance.rank_candidates(rows,inputs,ASOF,now=NOW)
     assert picks[0]["row"]["company_id"]==10
-    assert summary["weights"]=={"financial":.50,"technical":.40,"earnings":.10}
+    assert summary["weights"]=={"financial":.45,"technical":.35,"analyst":.10,"earnings":.10}
     assert picks[0]["score"]==round(sum(picks[0]["contributions"].values()),4)
     assert not summary["validated_forecast"]
 
@@ -111,3 +111,17 @@ def test_historical_replay_uses_filing_dates_without_reusing_live_audit():
     scored,rejected=finance.financial_scores(rows,inputs,ASOF,live=False)
     assert 10 not in scored and rejected[10]=="old_ttm_period"
     assert scored[9]["freshness_mode"]=="historical_filing_date_proxy"
+
+
+def test_analyst_component_changes_order_and_keeps_neutral_weight_when_missing():
+    inputs,rows=inputs_and_candidates()
+    inputs["analyst_snapshots"]={9:[{"source":"yahoo_finance","observed_at":"2026-10-03T11:00:00Z",
+        "period_date":"2026-10-01","strong_buy":100,"buy":0,"hold":0,"sell":0,"strong_sell":0}]}
+    picks,summary=finance.rank_candidates(rows,inputs,ASOF,now=NOW)
+    assert picks[0]["row"]["company_id"]==9
+    assert picks[0]["analyst"]["available"]
+    assert picks[0]["contributions"]["analyst"]==.1*picks[0]["analyst"]["score"]
+    missing=next(p for p in picks if p["row"]["company_id"]==10)
+    assert missing["contributions"]["analyst"]==5
+    assert missing["contributions"]["financial"]==.45*missing["financial"]["score"]
+    assert sum(summary["weights"].values())==1

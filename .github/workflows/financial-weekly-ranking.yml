@@ -8,6 +8,9 @@ on:
       - "services/api/app/research/financial_ranking.py"
       - "services/api/scripts/compare_financial_ranking.py"
       - "services/api/scripts/generate_weekly_signals.py"
+      - "services/api/scripts/refresh_analyst_consensus.py"
+      - "services/api/app/research/analyst_consensus.py"
+      - "services/api/app/providers/analyst_consensus.py"
       - ".github/workflows/financial-weekly-ranking.yml"
 
 concurrency:
@@ -29,6 +32,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,10 +45,11 @@ jobs:
         run: |
           python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
           python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
-      - name: Preview the fixed 50 / 40 / 10 policy
+      - name: Refresh free analyst recommendations
+        continue-on-error: true
+        run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
+      - name: Preview the fixed 45 / 35 / 10 / 10 policy
         run: python scripts/generate_weekly_signals.py --dry-run
-      - name: Replay against the previous price screen
-        run: python scripts/compare_financial_ranking.py
       - name: Apply the policy to the current weekly cohort
         run: python scripts/run_weekly_cycle.py
       - uses: actions/upload-artifact@v4
@@ -54,4 +59,5 @@ jobs:
           path: |
             services/api/financial_selection.json
             services/api/financial_ranking_comparison.json
+            services/api/analyst_consensus_refresh.json
           if-no-files-found: ignore

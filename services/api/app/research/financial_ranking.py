@@ -11,10 +11,11 @@ from math import isfinite
 
 from .earnings_catalysts import catalyst_adjustment
 from .financial_quality import MAX_TTM_AGE_DAYS
+from .analyst_consensus import load_snapshots, consensus_score
 
-POLICY_VERSION="financial-priority-v1"
-SIGNAL_VERSION="weekly-signal-v6-financial-priority"
-WEIGHTS={"financial":.50,"technical":.40,"earnings":.10}
+POLICY_VERSION="financial-analyst-priority-v2"
+SIGNAL_VERSION="weekly-signal-v7-financial-analyst"
+WEIGHTS={"financial":.45,"technical":.35,"analyst":.10,"earnings":.10}
 MAX_AUDIT_AGE_HOURS=48
 MIN_FACTOR_COVERAGE=.80
 MIN_PEERS=5
@@ -56,7 +57,7 @@ def paged(factory):
         start+=1000
 
 
-def load_inputs(db,asof=None):
+def load_inputs(db,asof=None,analyst_history=False):
     companies={r["id"]:r for r in (db.table("companies")
                .select("id,ticker,sector,industry,scoring_profile").eq("is_sp500",True).execute().data or [])}
     def query(a,b):
@@ -73,7 +74,11 @@ def load_inputs(db,asof=None):
           .eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(5).execute().data or [])
     audit=next(((r.get("metadata") or {}).get("financial_audit") for r in runs
                 if (r.get("metadata") or {}).get("financial_audit")),{})
-    return {"companies":companies,"metrics":dict(by_company),"audit":audit}
+    snapshots=load_snapshots(db,None if analyst_history else (datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
+    analyst_rows=defaultdict(list)
+    for row in snapshots:
+        analyst_rows[row["company_id"]].append(row)
+    return {"companies":companies,"metrics":dict(by_company),"audit":audit,"analyst_snapshots":dict(analyst_rows)}
 
 
 def verify_audit(audit,now=None):
@@ -200,7 +205,8 @@ def financial_scores(candidates,inputs,asof,live=True,now=None):
 
 def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=5):
     financial,rejected=financial_scores(candidates,inputs,asof,live,now)
-    picks=[]; earnings=earnings or {}
+    picks=[]; earnings=earnings or {}; analyst_status=Counter()
+    decision_at=now or datetime.now(timezone.utc)
     for row in candidates:
         cid=row["company_id"]; data=financial.get(cid)
         if data is None:
@@ -213,14 +219,17 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
         technical=max(0.,min(100.,technical))
         event=earnings.get(cid) or {}
         catalyst=50+6.25*catalyst_adjustment(event)
+        analyst=consensus_score(inputs.get("analyst_snapshots",{}).get(cid,[]),asof,live=live,now=decision_at)
+        analyst_status[analyst["status"]]+=1
         contributions={"financial":WEIGHTS["financial"]*data["score"],
-                       "technical":WEIGHTS["technical"]*technical,"earnings":WEIGHTS["earnings"]*catalyst}
+                       "technical":WEIGHTS["technical"]*technical,"earnings":WEIGHTS["earnings"]*catalyst,
+                       "analyst":WEIGHTS["analyst"]*analyst["score"]}
         total=sum(contributions.values())
         if total<MIN_TOTAL_SCORE:
             rejected[cid]="combined_score_below_minimum"; continue
         picks.append({"row":row,"financial":data,"score":round(total,4),"technical_score":technical,
                       "earnings_score":catalyst,"earnings_available":any(event.get(k) is not None for k in ("surprise_percent","revenue_surprise_percent")),
-                      "contributions":contributions,"catalyst":event})
+                      "contributions":contributions,"catalyst":event,"analyst":analyst})
     picks.sort(key=lambda p:(-p["score"],str(p["row"]["company_id"])))
     limit=len(picks) if top is None else min(top,5)
     return picks[:limit],{"policy_version":POLICY_VERSION,"weights":WEIGHTS,
@@ -228,4 +237,5 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
                               "ranking_eligible":len(picks),"selected":min(len(picks),limit),
                               "rejected":dict(Counter(rejected.values())),
                               "audit_checked_at":(inputs.get("audit") or {}).get("finished_at"),
+                              "decision_at":decision_at.isoformat(),"analyst_status":dict(analyst_status),
                               "validated_forecast":False}

@@ -31,6 +31,7 @@ jobs:
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       FORCE_DAILY_REFRESH: ${{ inputs.force || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -75,3 +76,7 @@ jobs:
         run: |
           echo "::warning::SEC refresh failed. Market data and Massive earnings completed; check the research_sources_refresh pipeline status and SEC step logs. Fundamentals remain incomplete."
           echo "SEC refresh failed. Market data and Massive earnings completed; see research_sources_refresh status and SEC step logs. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"
+      - name: Refresh free analyst consensus
+        if: ${{ steps.daily_gate.outputs.run == 'true' }}
+        continue-on-error: true
+        run: python scripts/refresh_analyst_consensus.py --max-age-hours 24

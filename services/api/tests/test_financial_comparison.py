@@ -36,5 +36,5 @@ def test_empty_replay_reports_no_evidence():
     result=replay.compare(prepared([]),{})
     assert result["all"]=={"cohorts":0}
     assert result["holdout_start"] is None
-    assert result["weights"]=={"financial":.5,"technical":.4,"earnings":.1}
+    assert result["weights"]=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}
     assert result["validated_forecast"] is False

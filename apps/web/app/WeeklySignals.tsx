@@ -21,6 +21,10 @@ type Signal = {
     execution_entry_date?: string;
     selection_close?: number | null;
     weekly_ranker?: {expected_excess_5d?: number; downside_p10_5d?: number; feature_coverage?: number} | null;
+    financial_ranking?: {score:number;coverage:number;profile:string;period_end:string;filed_date:string;audit_checked_at:string;
+      weights:{financial:number;technical:number;earnings:number};contributions:{financial:number;technical:number;earnings:number};
+      technical_score:number;earnings_score:number;earnings_available:boolean;
+      factors:Record<string,{value:number|null;score:number|null;weight:number;contribution:number}>} | null;
     selection_context?: {drawdown_60d?: number | null; upside_to_60d_high?: number | null};
   } | null;
   catalyst?: {reported_date?: string; surprise_percent?: number | null} | null;
@@ -36,6 +40,7 @@ const pct = (value: number | null | undefined, digits = 1) =>
   value == null ? "—" : `${(Number(value) * 100).toFixed(digits)}%`;
 const money = (value: number | null | undefined) =>
   value == null ? "—" : `$${Number(value).toFixed(2)}`;
+const factorNames:Record<string,string>={revenue_growth:"Revenue growth",eps_growth:"EPS growth",operating_margin:"Operating margin",net_margin:"Net margin",operating_margin_change:"Operating margin change",net_margin_change:"Net margin change",fcf_margin:"FCF margin",cash_conversion:"Cash conversion",net_debt_to_fcf:"Net debt / FCF",earnings_yield:"Earnings yield",fcf_yield:"FCF yield"};
 
 export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; scorecard: Scorecard}) {
   const dates = Array.from(new Set(signals.map(row => row.signal_date))).sort().reverse();
@@ -66,12 +71,13 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
           const repeat = previousTickers.has(ticker);
           const calibrated = main.model_diagnostics?.ranking_mode === "calibrated_blend";
           const ranker = main.model_diagnostics?.weekly_ranker;
+          const financial = main.model_diagnostics?.financial_ranking;
           const delayed = main.model_diagnostics?.entry_policy === "next_session_close";
           return <article className="weeklyStock" key={ticker}>
             <div className="weeklyStockHead"><span className="weeklyRank">#{main.rank}</span><Link href={`/company/${encodeURIComponent(ticker)}`} className="ticker">{ticker}</Link>{repeat && <small className="repeatTag">Also selected previously</small>}</div>
             <p className="stockName">{main.companies?.name ?? ""}</p>
-            <p className="modelStatus">{ranker ? "Weekly return ranker passed historical validation" : calibrated ? "Validated 5-day model contributes to rank" : "Historical screen · no validated model forecast"}</p>
-            <div className="weeklyEvidence"><b>Why it qualified</b>{ranker ? <p>5-day expected return vs SPY: {pct(ranker.expected_excess_5d)} · available model inputs: {pct(ranker.feature_coverage, 0)}.</p> : <p>{main.sample_size ?? "—"} similar past setups · {pct(main.historical_up_rate)} rose over 5 trading days · median {pct(main.historical_median_return)}.</p>}{main.catalyst?.reported_date && <small>Recent earnings reported {main.catalyst.reported_date}{main.catalyst.surprise_percent == null ? "" : ` · EPS surprise ${pct(main.catalyst.surprise_percent / 100)}`}</small>}</div>
+            <p className="modelStatus">{financial ? "Financial priority · fixed research weights · no validated forecast" : ranker ? "Weekly return ranker passed historical validation" : calibrated ? "Validated 5-day model contributes to rank" : "Historical screen · no validated model forecast"}</p>
+            <div className="weeklyEvidence"><b>Why it qualified</b>{financial?<><p>{pct(financial.weights.financial,0)} financial · {pct(financial.weights.technical,0)} price · {pct(financial.weights.earnings,0)} earnings surprise.</p><p>Financial score {financial.score.toFixed(1)} / 100 · {pct(financial.coverage,0)} factor coverage. TTM {financial.period_end}, filed {financial.filed_date}; verified against latest filing.</p><small>Points: financial {financial.contributions.financial.toFixed(1)} + price {financial.contributions.technical.toFixed(1)} + earnings {financial.contributions.earnings.toFixed(1)}.{!financial.earnings_available&&" Earnings surprise unavailable: neutral score."}</small>{financial.profile==="financial"&&<small>Financial-sector profile: growth, net profitability and earnings valuation. Bank solvency and capital ratios are not covered.</small>}<details><summary>Financial factors and sector comparisons</summary><table><thead><tr><th>Factor</th><th>Value</th><th>Sector score</th></tr></thead><tbody>{Object.entries(financial.factors).map(([key,value])=><tr key={key}><td>{factorNames[key]||key}</td><td>{value.value==null?"—":key==="cash_conversion"||key==="net_debt_to_fcf"?`${value.value.toFixed(2)}×`:pct(value.value)}</td><td>{value.score==null?"Unavailable":value.score.toFixed(1)}</td></tr>)}</tbody></table></details></>:ranker ? <p>5-day expected return vs SPY: {pct(ranker.expected_excess_5d)} · available model inputs: {pct(ranker.feature_coverage, 0)}.</p> : <p>{main.sample_size ?? "—"} similar past setups · {pct(main.historical_up_rate)} rose over 5 trading days · median {pct(main.historical_median_return)}.</p>}{main.catalyst?.reported_date && <small>Recent earnings reported {main.catalyst.reported_date}{main.catalyst.surprise_percent == null ? "" : ` · EPS surprise ${pct(main.catalyst.surprise_percent / 100)}`}</small>}</div>
             {ranker && <div className="weeklyEvidence risk"><b>Estimated downside</b><p>5-day lower 10th-percentile return: {pct(ranker.downside_p10_5d)}. Losses can exceed this estimate; it is not a loss limit.</p></div>}
             <div className="weeklyEvidence risk"><b>Risk to check</b><p>{drawdown != null && Number(drawdown) <= -0.1 ? `The signal close was ${pct(Math.abs(Number(drawdown)))} below its 60-day high. A rebound is uncertain.` : (main.sample_size ?? 0) < 100 ? "The historical match has fewer than 100 examples. Its observed win rate may be unstable." : "Similar past setups do not guarantee this stock will rise. Review company news and downside before acting."}</p></div>
             {delayed && <p className="muted">Selection close {money(main.model_diagnostics?.selection_close)} · {cohort.date}. Evaluation enters at the next session close and holds for 5/10/20 trading days. Outcomes deduct a 0.2% cost assumption.</p>}

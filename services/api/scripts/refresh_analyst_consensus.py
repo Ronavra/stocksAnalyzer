@@ -24,10 +24,13 @@ def refresh(db,provider,max_age_hours=24,delay=1.1):
         raise RuntimeError("No current companies; analyst refresh aborted")
     snapshots=load_snapshots(db,(now-timedelta(hours=max_age_hours)).isoformat()) if max_age_hours else []
     fresh=set()
+    by_company={}
     for row in snapshots:
-        data=consensus_score([row],now.date().isoformat(),now=now)
-        if data["available"] and row["source"]==provider.source:
-            fresh.add(row["company_id"])
+        if row["source"]==provider.source:
+            by_company.setdefault(row["company_id"],[]).append(row)
+    for cid,history in by_company.items():
+        if consensus_score(history,now.date().isoformat(),now=now)["available"]:
+            fresh.add(cid)
     started=now.isoformat()
     created=db.table("pipeline_runs").insert({"pipeline":PIPELINE,"status":"running","started_at":started}).execute().data or []
     run_id=created[0]["id"] if created else None

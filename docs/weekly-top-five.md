@@ -5,7 +5,39 @@ data. Prior selection does not exclude a company or reduce its score. The
 primary objective is five trading days; 10/20-day forecasts and outcomes remain
 separate measurements and do not get averaged into the ranking.
 
-## Experiment
+## Active financial policy
+
+`financial-priority-v1` uses fixed user weights: **50% financial, 40% price
+setup, 10% recent earnings surprise**. This is a research policy, not a fitted
+or calibrated return forecast. Financial factors compare sector percentiles:
+revenue/EPS growth, operating/net margins, operating-margin change, FCF margin
+and conversion, net debt/FCF, earnings yield and FCF yield. Negative EPS is a
+negative earnings yield, never a cheap negative P/E. Financial-sector companies
+use growth, net margin/change and earnings yield; bank ROE and capital adequacy
+are not currently covered by this limited profile.
+
+Eligibility requires a full SEC audit within 48 hours, verification against the
+latest official filing, a TTM period within 180 days and 80% weighted usable
+financial-factor coverage. Revenue, net income and EPS are mandatory. Missing
+factors retain their weights and earn no points. Sector factors require five
+peers. Price setups need 50 observations; financial score must reach 50/100 and
+combined score 55/100. Missing recent earnings is neutral 50, explicitly flagged.
+There is no padding to five or rotation restriction.
+
+Selection refreshes SEC/earnings checks, records factors, component contributions,
+coverage, report dates and audit time, and preserves frozen older cohorts.
+`--dry-run` previews without DB changes. New v6 cohorts use next-session-close
+entry and 5/10/20-day evaluation by the daily cycle.
+
+`compare_financial_ranking.py` replays fixed weights against the previous screen
+with filing-date availability, delayed entry, 0.2% costs and paired outcomes.
+Missing selected outcomes exclude the paired week; cash weeks pay no stock
+transaction costs. The last 20% is descriptive, not a new untouched test.
+Financial backfills lack historical SEC audit snapshots, and constituents and
+sectors are current. This replay cannot certify point-in-time improvement or
+promote forecasts. Frozen forward results remain necessary.
+
+## Separate price-model experiment
 
 `validate_weekly_ranker.py` runs cross-sectional excess-return regression,
 absolute-return regression and a separate 10th-percentile absolute-return regression. Features are the existing
@@ -47,10 +79,11 @@ These are fixed research criteria, not optimized thresholds or investment
 guarantees. Costs of 0.2% and 0.5% are scenarios, not real broker fees. SPY is
 compared gross, making the after-cost excess test conservative. Validation
 records and an artifact contain all results and limitations. Success means the
-job completed; promotion is computed separately. Production requires a passed
+job completed; promotion is computed separately. This experiment requires a passed
 record with a matching protocol and validation/data no more than eight days
 old, then refits on currently matured data and checks the latest feature date.
-If the weekly ranker fails, the historical screen is retained. The older
+The fixed financial policy above is active; this experiment does not replace it
+automatically. The older
 probability model remains available in its own validation report, but its
 selection-close labels do not validate next-session-entry forecasts. No old
 frozen cohort is replaced.
@@ -64,7 +97,7 @@ tracked before confidence in the strategy increases.
 
 ## Live ledger
 
-New v5 cohorts store the selection close separately and leave `entry_price`
+New v5/v6 cohorts store the selection close separately and leave `entry_price`
 empty until the next session closes. The daily evaluator fills that entry and
 uses the same SPY session calendar. It evaluates 5/10/20 full trading days from
 entry and deducts the 0.2% assumed round-trip cost. Older cohorts preserve their

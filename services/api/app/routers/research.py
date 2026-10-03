@@ -6,6 +6,7 @@ from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
 from ..research.signal_history import complete_oldest_signal_cohort
 from ..research.current_valuation import current_valuations
+from ..research.financial_ranking import load_inputs, rank_candidates, WEIGHTS, POLICY_VERSION
 from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
 
@@ -18,8 +19,21 @@ def candidates():
     earnings=recent_earnings(db,rows)
     valuations=current_valuations(db,rows)
     result=[{"ticker":r["ticker"],"company":r["company"],"sector":r.get("sector"),"signal":"setup","score":r.get("research_priority_score"),"coverage":r.get("research_priority_coverage"),"catalyst":r.get("research_priority_reason"),"fundamentals":r.get("fundamentals_score"),"valuation":r.get("valuation_score"),"earnings":r.get("earnings_score"),"pe":valuations.get(r["company_id"],{}).get("pe"),"price_to_fcf":valuations.get(r["company_id"],{}).get("price_to_fcf"),"as_of_date":r.get("as_of_date"),"opportunity_score":r.get("opportunity_score"),"setup_probability_up":r.get("setup_probability_up"),"setup_median_return_5d":r.get("setup_median_return_5d"),"setup_sample_size":r.get("setup_sample_size"),"upside_to_60d_high":r.get("upside_to_60d_high"),"setup_drawdown_60d":r.get("setup_drawdown_60d"),"opportunity_reason":r.get("opportunity_reason"),"current_price":r.get("current_price"),"price_date":r.get("price_date"),"price_source":r.get("price_source"),"earnings_catalyst":earnings.get(r.get("company_id"))} for r in rows]
+    signal_date=max((str(r.get("price_date") or "") for r in rows),default="")
+    current=[r for r in rows if r.get("price_date")==signal_date and r.get("as_of_date")==signal_date]
+    ranking={}; ranking_error=None
+    try:
+        picks,summary=rank_candidates(current,load_inputs(db,signal_date),signal_date,earnings,top=None)
+        ranking={p["row"]["ticker"]:p for p in picks}
+    except RuntimeError as exc:
+        ranking_error=str(exc)
     for x in result:
-        base=x.get("opportunity_score"); x["catalyst_adjustment"]=round(catalyst_adjustment(x.get("earnings_catalyst")),2); x["research_rank_score"]=round(float(base)+x["catalyst_adjustment"],2) if base is not None else None
+        p=ranking.get(x["ticker"])
+        x["catalyst_adjustment"]=round(catalyst_adjustment(x.get("earnings_catalyst")),2)
+        x["research_rank_score"]=p["score"] if p else None
+        x["financial_ranking"]=p["financial"] if p else None
+        x["ranking_weights"]=WEIGHTS
+        x["financial_ranking_status"]="eligible" if p else (ranking_error or "Does not meet freshness, financial coverage or score requirements")
     result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
     return result
 
@@ -112,6 +126,8 @@ def system_health():
     source_runs=(db.table("pipeline_runs").select("*").eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(1).execute().data or [])
     model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message,results").neq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
     ranker_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,error_message,results").eq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
+    finance_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
+                  .eq("pipeline","weekly_financial_comparison").order("started_at",desc=True).limit(1).execute().data or [])
     latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
@@ -135,6 +151,8 @@ def system_health():
         "research_sources_run":source_run,
         "model_validation":model_run,
         "weekly_ranker_validation":ranker_run,
+        "financial_ranking_policy":{"version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
+                                    "comparison":finance_runs[0] if finance_runs else None},
         "coverage":{
             "universe":audit.get("universe",0),
             "fundamentals":audit.get("fundamentals",0),

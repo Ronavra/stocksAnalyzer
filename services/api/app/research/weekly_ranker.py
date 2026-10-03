@@ -57,7 +57,7 @@ def prepare(db, years=5):
             actual = executed_return(price_maps[cid], execution)
             benchmark = executed_return(price_maps[spy_id], execution)
             records.append({
-                "company_id": cid, "date": anchor, "features": fd, "feature_coverage": coverage,
+                "company_id": cid, "date": anchor, "selection_close":number(row.get("close")), "features": fd, "feature_coverage": coverage,
                 "actual_return": actual, "spy_return": benchmark,
                 "target_excess": actual - benchmark if actual is not None and benchmark is not None else None,
                 "label_end_date": execution[1] if execution else None,
@@ -78,8 +78,9 @@ def prepare(db, years=5):
         earnings.setdefault(event["company_id"], []).append(event)
     for record in records:
         setup = record["setup"]
+        event = historical_catalyst(earnings.get(record["company_id"], []), record["date"])
+        record["historical_earnings"]=event
         if setup and setup["sample_size"] >= 50 and setup["up"] >= .52 and setup["median"] > 0:
-            event = historical_catalyst(earnings.get(record["company_id"], []), record["date"])
             record["screen_score"] = setup["score"] + catalyst_adjustment(event)
         else:
             record["screen_score"] = None

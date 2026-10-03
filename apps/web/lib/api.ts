@@ -4,6 +4,7 @@ export type Candidate = {
  opportunity_score:number|null; setup_probability_up:number|null; setup_median_return_5d:number|null; setup_sample_size:number|null;
  upside_to_60d_high:number|null; setup_drawdown_60d:number|null; opportunity_reason:string|null; current_price:number|null; price_date:string|null; price_source:string|null;
  research_rank_score:number|null; catalyst_adjustment:number|null; earnings_catalyst:{reported_date:string;surprise_percent:number|null;revenue_surprise_percent:number|null;source:string}|null;
+ financial_ranking?:{score:number;coverage:number;period_end:string}|null; financial_ranking_status?:string; ranking_weights?:Record<string,number>;
 };
 const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 

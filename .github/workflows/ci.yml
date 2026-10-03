@@ -35,6 +35,8 @@ jobs:
           scripts/build_daily_valuation.py
           app/research/calibrated_model.py
           app/research/weekly_ranker.py
+          app/research/financial_ranking.py
+          scripts/compare_financial_ranking.py
           app/research/weekly_rank_metrics.py
           app/research/signal_execution.py
           scripts/validate_weekly_ranker.py

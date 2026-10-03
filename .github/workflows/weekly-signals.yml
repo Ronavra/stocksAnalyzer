@@ -26,6 +26,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,5 +44,13 @@ jobs:
         run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/ingest_massive_earnings.py scripts/generate_weekly_signals.py scripts/backtest_calibrated_model.py app/providers/sec.py app/providers/massive.py app/research/calibrated_model.py
       - name: Ensure research sources are fresh
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
+      - name: Verify SEC fundamentals before financial ranking
+        run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
       - name: Freeze up to 5 research candidates at 5d 10d and 20d horizons
         run: python scripts/run_weekly_cycle.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: financial-weekly-selection
+          path: services/api/financial_selection.json
+          if-no-files-found: ignore

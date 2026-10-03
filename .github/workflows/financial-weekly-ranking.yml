@@ -1,0 +1,57 @@
+name: Financial Weekly Ranking
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/app/research/financial_ranking.py"
+      - "services/api/scripts/compare_financial_ranking.py"
+      - "services/api/scripts/generate_weekly_signals.py"
+      - ".github/workflows/financial-weekly-ranking.yml"
+
+concurrency:
+  group: stocks-analyzer-market-data
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Ensure financial and earnings checks are current
+        run: |
+          python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
+          python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
+      - name: Preview the fixed 50 / 40 / 10 policy
+        run: python scripts/generate_weekly_signals.py --dry-run
+      - name: Replay against the previous price screen
+        run: python scripts/compare_financial_ranking.py
+      - name: Apply the policy to the current weekly cohort
+        run: python scripts/run_weekly_cycle.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: financial-ranking-audit
+          path: |
+            services/api/financial_selection.json
+            services/api/financial_ranking_comparison.json
+          if-no-files-found: ignore

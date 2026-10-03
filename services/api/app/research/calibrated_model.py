@@ -4,6 +4,7 @@ from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
+from .financial_quality import MAX_TTM_AGE_DAYS
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -128,12 +129,11 @@ def load_ttm_fundamentals(db):
         for i,r in enumerate(items):
             cur_end=date.fromisoformat(r["period_end"])
             prior_yoy=None
-            prior_snapshot=items[i-1] if i else None
-            for q in reversed(items[:i]):
-                gap=(cur_end-date.fromisoformat(q["period_end"])).days
-                if 300<=gap<=450:
-                    prior_yoy=q
-                    break
+            prior_snapshot=max((q for q in items[:i] if q["period_end"]<r["period_end"]),
+                               key=lambda q:(q["period_end"],q["filed_date"]),default=None)
+            prior_yoy=max((q for q in items[:i]
+                           if 300<=(cur_end-date.fromisoformat(q["period_end"])).days<=450),
+                          key=lambda q:(q["period_end"],q["filed_date"]),default=None)
 
             revenue=_num(r.get("revenue")); eps=_num(r.get("eps_diluted"))
             op=_num(r.get("operating_income")); net=_num(r.get("net_income")); fcf=_num(r.get("free_cash_flow"))
@@ -150,11 +150,10 @@ def load_ttm_fundamentals(db):
             if prior_snapshot:
                 ps_end=date.fromisoformat(prior_snapshot["period_end"])
                 ps_yoy=None
-                for q in reversed(items[:i-1]):
-                    gap=(ps_end-date.fromisoformat(q["period_end"])).days
-                    if 300<=gap<=450:
-                        ps_yoy=q
-                        break
+                ps_yoy=max((q for q in items[:i]
+                            if q["filed_date"]<=prior_snapshot["filed_date"]
+                            and 300<=(ps_end-date.fromisoformat(q["period_end"])).days<=450),
+                           key=lambda q:(q["period_end"],q["filed_date"]),default=None)
                 ps_rev=_num(prior_snapshot.get("revenue")); ps_eps=_num(prior_snapshot.get("eps_diluted"))
                 ps_op=_num(prior_snapshot.get("operating_income")); ps_fcf=_num(prior_snapshot.get("free_cash_flow"))
                 py_rev=_num(ps_yoy.get("revenue")) if ps_yoy else None
@@ -181,7 +180,7 @@ def load_ttm_fundamentals(db):
                 "fund_fcf_margin_delta":fcf_margin-prev_fcf_margin if fcf_margin is not None and prev_fcf_margin is not None else None,
                 "fund_fcf_to_net_income":fcf/net if fcf is not None and net not in (None,0) else None,
             }
-            built.append({"filed_date":r["filed_date"],"values":vals})
+            built.append({"filed_date":r["filed_date"],"period_end":r["period_end"],"values":vals})
         snapshots[cid]=built
     return snapshots
 
@@ -194,7 +193,12 @@ def fundamental_asof(snapshots,cid,asof):
     i=bisect_right(keys,asof)-1
     if i<0:
         return {k:None for k in FUND_FEATURES}
-    item=items[i]
+    # A newly filed comparative or amendment for an older year must not
+    # replace the newest financial period available at this historical close.
+    item=max(items[:i+1],key=lambda x:(x["period_end"],x["filed_date"]))
+    age=(date.fromisoformat(asof)-date.fromisoformat(item["period_end"])).days
+    if not 0<=age<=MAX_TTM_AGE_DAYS:
+        return {k:None for k in FUND_FEATURES}
     out=dict(item["values"])
     out["fund_age_days"]=(date.fromisoformat(asof)-date.fromisoformat(item["filed_date"])).days
     return out

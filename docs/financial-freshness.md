@@ -20,6 +20,9 @@ preserves reported Q4 and annual values. Missing cash/debt components are not fi
 Daily SEC-derived valuation excludes TTM periods older than 180 days and companies whose latest
 full-refresh audit could not verify the current filing. Invalid derived snapshots for the latest
 price date are removed when rebuilding that date. Previously stored historical snapshots remain.
+The candidate screen reads only the rebuilt valuation for its own price date. Historical model
+joins select the newest period already filed at the signal date, rather than the most recently
+filed comparative for an old period, and apply the same 180-day period-age limit.
 
 Remaining limits: SEC Company Facts does not expose all custom company tags; the current extractor
 uses USD US-GAAP fields. New entities may have insufficient TTM history. A missing field is not zero,

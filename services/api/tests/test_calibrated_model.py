@@ -7,6 +7,22 @@ from app.research import calibrated_model as model
 from app.research.validation_gate import validated_horizons
 
 
+def test_fundamental_asof_uses_latest_period_without_future_filings():
+    snapshots={1:[
+        {"filed_date":"2026-08-01","period_end":"2026-06-30","values":{"_ttm_eps":5}},
+        {"filed_date":"2026-09-01","period_end":"2025-12-31","values":{"_ttm_eps":2}},
+        {"filed_date":"2026-11-01","period_end":"2026-09-30","values":{"_ttm_eps":8}},
+    ]}
+    assert model.fundamental_asof(snapshots,1,"2026-10-02")["_ttm_eps"]==5
+    assert model.fundamental_asof(snapshots,1,"2026-11-02")["_ttm_eps"]==8
+    assert all(v is None for v in model.fundamental_asof(snapshots,1,"2026-07-01").values())
+
+
+def test_recently_filed_old_period_is_not_a_fresh_financial_feature():
+    snapshots={1:[{"filed_date":"2026-10-01","period_end":"2020-12-31","values":{"_ttm_eps":5}}]}
+    assert all(v is None for v in model.fundamental_asof(snapshots,1,"2026-10-02").values())
+
+
 def test_prepare_sector_valuation_uses_sampled_dates(monkeypatch):
     dates=[(date(2020,12,21)+timedelta(days=i)).isoformat() for i in range(7)]
     rows=[

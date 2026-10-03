@@ -1,3 +1,8 @@
+export type AnalystConsensus = {
+ score:number; available:boolean; status:string; analyst_count:number|null; source:string|null;
+ observed_at:string|null; period_date:string|null; buy_share?:number;
+ counts?:Record<string,number>; price_targets?:{low?:number|null;mean?:number|null;median?:number|null;high?:number|null};
+};
 export type Candidate = {
  ticker:string; company:string; sector:string|null; signal:string; score:number|null; coverage:number|null; catalyst:string|null;
  fundamentals:number|null; valuation:number|null; earnings:number|null; pe:number|null; price_to_fcf:number|null; as_of_date:string;
@@ -5,6 +10,7 @@ export type Candidate = {
  upside_to_60d_high:number|null; setup_drawdown_60d:number|null; opportunity_reason:string|null; current_price:number|null; price_date:string|null; price_source:string|null;
  research_rank_score:number|null; catalyst_adjustment:number|null; earnings_catalyst:{reported_date:string;surprise_percent:number|null;revenue_surprise_percent:number|null;source:string}|null;
  financial_ranking?:{score:number;coverage:number;period_end:string}|null; financial_ranking_status?:string; ranking_weights?:Record<string,number>;
+ analyst_consensus?:AnalystConsensus|null;
 };
 const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 

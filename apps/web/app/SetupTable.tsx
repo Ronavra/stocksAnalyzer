@@ -8,10 +8,11 @@ export default function SetupTable({rows}:{rows:Candidate[]}){
  const [page,setPage]=useState(1); const per=25; const pages=Math.max(1,Math.ceil(rows.length/per));
  const shown=useMemo(()=>rows.slice((page-1)*per,page*per),[rows,page]);
  return <><div className="tableScroll"><table className="setupTable"><thead><tr>
-  <th>Ticker</th><th>Company</th><th>Sector</th><th>Price</th><th>Date</th><th>Combined rank</th><th>Financial score</th><th>Earnings catalyst</th><th>Price score</th><th>Hist. up</th><th>Median 5d</th><th>To 60d high</th><th>60d drawdown</th><th>Samples</th>
+  <th>Ticker</th><th>Company</th><th>Sector</th><th>Price</th><th>Date</th><th>Combined rank</th><th>Financial score</th><th>Analyst consensus</th><th>Earnings catalyst</th><th>Price score</th><th>Hist. up</th><th>Median 5d</th><th>To 60d high</th><th>60d drawdown</th><th>Samples</th>
  </tr></thead><tbody>{shown.map(x=><tr key={x.ticker}>
   <td><Link className="ticker" href={`/company/${x.ticker}`}>{x.ticker}</Link></td><td>{x.company}</td><td>{x.sector||"—"}</td><td>{x.current_price==null?"—":Number(x.current_price).toFixed(2)}</td><td>{x.price_date||x.as_of_date||"—"}</td><td><b>{num(x.research_rank_score)}</b></td>
   <td title={x.financial_ranking_status}>{x.financial_ranking?<span className="catalystCell"><b>{num(x.financial_ranking.score)}</b><small>{pct(x.financial_ranking.coverage,0)} factor coverage · {x.financial_ranking.period_end}</small></span>:<span className="muted">Not eligible</span>}</td>
+  <td title={x.analyst_consensus?.status}>{x.analyst_consensus?.available?<span className="catalystCell"><b>{num(x.analyst_consensus.score)}</b><small>{x.analyst_consensus.analyst_count} analysts · {x.analyst_consensus.period_date}</small></span>:<span className="muted">50 · neutral</span>}</td>
   <td>{x.earnings_catalyst?<span className="catalystCell"><b>{x.earnings_catalyst.reported_date}</b><small>EPS {x.earnings_catalyst.surprise_percent==null?"—":`${Number(x.earnings_catalyst.surprise_percent)>=0?"+":""}${Number(x.earnings_catalyst.surprise_percent).toFixed(1)}%`} · Rev {x.earnings_catalyst.revenue_surprise_percent==null?"—":`${Number(x.earnings_catalyst.revenue_surprise_percent)>=0?"+":""}${Number(x.earnings_catalyst.revenue_surprise_percent).toFixed(1)}%`}</small></span>:"—"}</td>
   <td>{num(x.opportunity_score)}</td><td>{pct(x.setup_probability_up)}</td><td>{pct(x.setup_median_return_5d)}</td><td>{pct(x.upside_to_60d_high)}</td><td>{pct(x.setup_drawdown_60d)}</td><td>{x.setup_sample_size??"—"}</td>
  </tr>)}</tbody></table></div>

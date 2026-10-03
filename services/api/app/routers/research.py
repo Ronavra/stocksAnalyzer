@@ -7,6 +7,8 @@ from ..research.validation_gate import validated_horizons
 from ..research.signal_history import complete_oldest_signal_cohort
 from ..research.current_valuation import current_valuations
 from ..research.financial_ranking import load_inputs, rank_candidates, WEIGHTS, POLICY_VERSION
+from ..research.analyst_consensus import load_snapshots, consensus_score
+from datetime import datetime,timezone,timedelta
 from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
 
@@ -22,13 +24,16 @@ def candidates():
     signal_date=max((str(r.get("price_date") or "") for r in rows),default="")
     current=[r for r in rows if r.get("price_date")==signal_date and r.get("as_of_date")==signal_date]
     ranking={}; ranking_error=None
+    inputs=load_inputs(db,signal_date)
     try:
-        picks,summary=rank_candidates(current,load_inputs(db,signal_date),signal_date,earnings,top=None)
+        picks,summary=rank_candidates(current,inputs,signal_date,earnings,top=None)
         ranking={p["row"]["ticker"]:p for p in picks}
     except RuntimeError as exc:
         ranking_error=str(exc)
     for x in result:
         p=ranking.get(x["ticker"])
+        cid=next(r["company_id"] for r in rows if r["ticker"]==x["ticker"])
+        x["analyst_consensus"]=consensus_score(inputs.get("analyst_snapshots",{}).get(cid,[]),signal_date)
         x["catalyst_adjustment"]=round(catalyst_adjustment(x.get("earnings_catalyst")),2)
         x["research_rank_score"]=p["score"] if p else None
         x["financial_ranking"]=p["financial"] if p else None
@@ -44,6 +49,13 @@ def data_audit():
         count=d.get(key,0); pct=round(100*count/total,1) if total else 0
         return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
     layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Analyst estimates"),item("earnings","Historical earnings events")]
+    snapshots=load_snapshots(db,(datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
+    grouped={}
+    for row in snapshots:
+        grouped.setdefault(row["company_id"],[]).append(row)
+    count=sum(consensus_score(history,datetime.now(timezone.utc).date().isoformat())["available"] for history in grouped.values())
+    layers.append({"key":"analyst_consensus","label":"Current analyst recommendations","companies":count,"total":total,
+                   "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
     if d.get("estimates",0)<total*.95:
         notes.append("Analyst estimate coverage is limited; rankings do not assume missing estimates are zero.")
@@ -79,7 +91,9 @@ def company(ticker:str):
     if usable:
         sig=derive_fundamentals(usable[0],usable[1] if len(usable)>1 else None); fundamental_signals={**sig.__dict__,"period_end":usable[0].get("period_end"),"source":usable[0].get("source")}
     assessment=build_analyst_assessment(snapshots[0],latest_earnings,fundamental_signals).__dict__ if snapshots else None
-    return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment}
+    consensus=(db.table("analyst_consensus_snapshots").select("*").eq("company_id",c["id"]).order("observed_at",desc=True).order("period_date",desc=True).limit(40).execute().data or [])
+    return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,
+            "analyst_consensus":consensus_score(consensus,datetime.now(timezone.utc).date().isoformat())}
 
 @router.get("/framework")
 def framework(): return {"dimensions":["fundamentals","valuation","earnings/revisions","momentum","news/sentiment","catalysts"],"purpose":"Prioritize companies for research; not personalized buy/sell instructions."}
@@ -128,6 +142,8 @@ def system_health():
     ranker_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,error_message,results").eq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
     finance_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
                   .eq("pipeline","weekly_financial_comparison").order("started_at",desc=True).limit(1).execute().data or [])
+    analyst_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
+                  .eq("pipeline","analyst_consensus_refresh").order("started_at",desc=True).limit(1).execute().data or [])
     latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
@@ -151,6 +167,7 @@ def system_health():
         "research_sources_run":source_run,
         "model_validation":model_run,
         "weekly_ranker_validation":ranker_run,
+        "analyst_consensus_refresh":analyst_runs[0] if analyst_runs else None,
         "financial_ranking_policy":{"version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
                                     "comparison":finance_runs[0] if finance_runs else None},
         "coverage":{

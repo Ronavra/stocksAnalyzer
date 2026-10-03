@@ -9,4 +9,5 @@ dist/
 .DS_Store
 services/api/financial_selection.json
 services/api/financial_ranking_comparison.json
+services/api/analyst_consensus_refresh.json
 services/api/sec_fundamentals_audit.json

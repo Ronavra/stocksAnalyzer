@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {getCompany} from "@/lib/api";
+import AnalystConsensus from "../../AnalystConsensus";
 
 const val=(v:any)=>v==null?"—":typeof v==="number"?Number(v).toFixed(1):String(v);
 const ratio=(v:any)=>v==null?"—":Number(v).toFixed(2);
@@ -22,6 +23,7 @@ export default async function CompanyPage({params}:{params:{ticker:string}}){
  </div>
  <p className="muted">This page separates observed evidence from forecasts. Probability, expected return and fair value stay unavailable until their models are validated.</p></section>
 
+ <section className="panel"><p className="eyebrow">EXTERNAL ANALYST RECOMMENDATIONS</p><h2>Observed consensus</h2><AnalystConsensus data={data.analyst_consensus}/></section>
  <section className="scoreGrid">{Object.entries(metrics).map(([k,v])=><article key={k}><span>{k}</span><strong>{val(v)}</strong></article>)}</section>
 
  <section className="twoCol">

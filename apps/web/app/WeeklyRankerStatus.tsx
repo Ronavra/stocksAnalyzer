@@ -20,7 +20,7 @@ export default function WeeklyRankerStatus({validation}: {validation?: Validatio
     : validation.promotion_passed ? "Historical promotion checks passed"
     : "Validation completed · weekly ranker not promoted";
   return <section className="panel" aria-label="Weekly ranker validation">
-    <div className="panelHead"><div><p className="eyebrow">SEPARATE PRICE MODEL EXPERIMENT</p><h2>{status}</h2></div><p className="muted">This experiment is separate from the active 50 / 40 / 10 financial selection policy.</p></div>
+    <div className="panelHead"><div><p className="eyebrow">SEPARATE PRICE MODEL EXPERIMENT</p><h2>{status}</h2></div><p className="muted">This experiment is separate from the active 45 / 35 / 10 / 10 financial selection policy.</p></div>
     {validation?.holdout && <div className="definitions">
       <div><b>Final audit weeks</b><span>{validation.holdout.cohorts ?? 0}</span></div>
       <div><b>Average after-cost return vs SPY</b><span>{pct(validation.holdout.mean_excess_vs_spy)}</span></div>

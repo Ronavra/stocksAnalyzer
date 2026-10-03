@@ -59,10 +59,10 @@ def mock_finance(monkeypatch,eligible=True):
     monkeypatch.setattr(weekly,"load_inputs",lambda *_:{})
     def rank(rows,*args,**kwargs):
         picks=[{"row":row,"score":70.,"financial":{"score":80.,"coverage":1.,"period_end":"2026-06-30"},
-                "contributions":{"financial":40.,"technical":25.,"earnings":5.},
+                "contributions":{"financial":36.,"technical":24.,"analyst":5.,"earnings":5.},"analyst":{"score":50.,"available":False,"status":"missing"},
                 "technical_score":62.5,"earnings_score":50.,"earnings_available":False,"catalyst":{}}
                for row in rows] if eligible else []
-        return picks,{"policy_version":"financial-priority-v1","weights":{"financial":.5,"technical":.4,"earnings":.1}}
+        return picks,{"policy_version":"financial-analyst-priority-v2","decision_at":"2026-09-30T12:00:00Z","weights":{"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}}
     monkeypatch.setattr(weekly,"rank_candidates",rank)
 
 
@@ -99,7 +99,7 @@ def test_financial_policy_is_recorded_without_a_validated_forecast(monkeypatch):
     mock_finance(monkeypatch)
     assert len(weekly.generate(db, horizons=(5,))) == 1
     assert db.saved[0]["model_diagnostics"]["ranking_mode"] == "financial_priority"
-    assert db.saved[0]["model_diagnostics"]["financial_ranking"]["weights"]=={"financial":.5,"technical":.4,"earnings":.1}
+    assert db.saved[0]["model_diagnostics"]["financial_ranking"]["weights"]=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}
     assert db.saved[0]["model_probability_up"] is None
     assert db.saved[0]["model_expected_return"] is None
 

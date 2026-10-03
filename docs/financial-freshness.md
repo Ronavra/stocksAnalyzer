@@ -16,6 +16,11 @@ Bank total revenue net of interest takes precedence over contract-fee revenue. C
 from cumulative statements only where the matching preceding cumulative period was already filed.
 An annual statement is itself a TTM observation. Rolling TTM requires consecutive quarters and
 preserves reported Q4 and annual values. Missing cash/debt components are not filled with zero.
+Where quarter history has a field gap, a full year plus current YTD minus comparable prior YTD
+can recover TTM. Both YTD sequences must be complete and match consecutive fiscal-year anchors.
+If Company Facts lags the latest filing, ingestion also attempts its official extracted XBRL
+instance. Only standard facts for the matching CIK and consolidated contexts are accepted;
+segment/subsidiary/custom facts are excluded. Archive access failures remain explicit audit gaps.
 
 Daily SEC-derived valuation excludes TTM periods older than 180 days and companies whose latest
 full-refresh audit could not verify the current filing. Invalid derived snapshots for the latest

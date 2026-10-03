@@ -41,5 +41,7 @@ def summarize_quality(rows):
             "current_ttm":counts.get("current",0),
             "current_complete":sum(r["status"]=="current" and r.get("core_complete",False) for r in rows),
             "field_coverage":{k:sum(r.get("ttm_period") is not None and k not in r.get("missing_fields",CORE_FIELDS) for r in rows) for k in CORE_FIELDS},
+            "filing_fallback_used":sum(bool(r.get("filing_fallback_used")) for r in rows),
+            "filing_fallback_failed":sum(bool(r.get("filing_fallback_error")) for r in rows),
             "all_current":bool(rows) and counts.get("current",0)==len(rows),
             "all_current_and_complete":bool(rows) and all(r["status"]=="current" and r.get("core_complete",False) for r in rows)}

@@ -34,6 +34,10 @@ jobs:
           scripts/ablation_predictive_model.py
           scripts/build_daily_valuation.py
           app/research/calibrated_model.py
+          app/research/weekly_ranker.py
+          app/research/weekly_rank_metrics.py
+          app/research/signal_execution.py
+          scripts/validate_weekly_ranker.py
           app/providers/sec.py
           app/providers/twelvedata.py
           app/providers/massive.py

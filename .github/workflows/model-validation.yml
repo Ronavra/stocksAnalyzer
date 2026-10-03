@@ -10,6 +10,7 @@ on:
     paths:
       - "services/api/app/research/calibrated_model.py"
       - "services/api/app/research/validation_gate.py"
+      - "services/api/scripts/generate_weekly_signals.py"
       - "services/api/scripts/ablation_predictive_model.py"
   schedule:
     - cron: "15 9 * * 5"

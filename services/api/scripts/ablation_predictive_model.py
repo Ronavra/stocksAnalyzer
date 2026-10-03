@@ -35,7 +35,7 @@ def main():
     db.table("model_validation_runs").update({
         "status":"error","finished_at":now,
         "error_message":"Superseded by a newer model validation run"
-    }).eq("status","running").execute()
+    }).eq("model_version",MODEL_VERSION).eq("status","running").execute()
     created=(db.table("model_validation_runs").insert({
         "status":"running","model_version":MODEL_VERSION
     }).execute().data or [])

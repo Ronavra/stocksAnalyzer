@@ -5,6 +5,24 @@ data. Prior selection does not exclude a company or reduce its score. The
 primary objective is five trading days; 10/20-day forecasts and outcomes remain
 separate measurements and do not get averaged into the ranking.
 
+## Dashboard price tracker
+
+Each weekly group is collapsed until opened. Its table shows the frozen
+recommendation close, closes after 5/10/20 trading sessions, and the most recent
+stored daily close with its actual date. These display windows start **after the
+recommendation date**, using SPY's stored market sessions and the stock's exact
+close on the target date. Weekends and exchange holidays do not count. Unmatured
+windows show `Pending`; a matured date with no stock close shows `Price missing`.
+Unavailable benchmark history is explicitly flagged. Price history is paginated
+to avoid the database's default row limit.
+
+Research evidence, frozen weights and evaluation details are available inside
+the group. Performance, system coverage, company screening and methodology are
+also collapsed. The price tracker does not change the original prediction ledger
+or execution policy: newer model evaluations still enter at the next session
+close, hold for their horizon, and deduct costs. Those execution outcomes and
+exit dates are labeled separately in the research details.
+
 ## Active financial policy
 
 `financial-analyst-priority-v2` uses fixed user weights: **45% financial, 35% price

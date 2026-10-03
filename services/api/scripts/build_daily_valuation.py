@@ -9,9 +9,9 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
+from app.research.financial_quality import MAX_TTM_AGE_DAYS
 
 SOURCE="sec_price_derived"
-MAX_TTM_AGE_DAYS=540
 
 def num(v):
     try:
@@ -45,6 +45,20 @@ def main():
     if not latest:
         raise RuntimeError("No price history available")
     snapshot_date=latest[0]["price_date"]
+    # A completed SEC refresh may still expose an older TTM than its latest
+    # actual filing. Those companies must not receive a fresh-looking multiple.
+    audit_runs=(db.table("pipeline_runs").select("metadata")
+                .eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(3).execute().data or [])
+    audit=next(((r.get("metadata") or {})["financial_audit"] for r in audit_runs
+                if (r.get("metadata") or {}).get("financial_audit")),{})
+    path=API_DIR/"sec_fundamentals_audit.json"
+    if path.exists():
+        import json
+        current=json.loads(path.read_text())
+        if (current.get("scope")=="full_universe"
+                and current.get("started_at","")>=audit.get("started_at","")):
+            audit=current
+    blocked={r["company_id"] for r in audit.get("companies",[]) if r.get("status")!="current"}
 
     prices=(db.table("price_history").select("company_id,close")
             .eq("price_date",snapshot_date).execute().data or [])
@@ -63,6 +77,8 @@ def main():
 
     payload=[]
     for cid,price in price_by_company.items():
+        if cid in blocked:
+            continue
         m=latest_ttm.get(cid)
         if not m or price in (None,0):
             continue

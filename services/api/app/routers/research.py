@@ -31,7 +31,15 @@ def data_audit():
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
     if d.get("estimates",0)<total*.95:
         notes.append("Analyst estimate coverage is limited; rankings do not assume missing estimates are zero.")
-    return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes}
+    reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
+             .eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(3).execute().data or [])
+    report=next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")),None)
+    financial=((report.get("metadata") or {}).get("financial_audit") or {}) if report else {}
+    if financial:
+        notes.append("Financial freshness is checked against SEC filing periods; retrieval success does not imply complete data.")
+    return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes,
+            "financial_quality":financial.get("summary"),"financial_checked_at":financial.get("finished_at"),
+            "financial_gaps":[r for r in financial.get("companies",[]) if r.get("status")!="current" or r.get("missing_fields")]}
 
 @router.get("/companies-search")
 def companies_search(q:str=""):

@@ -26,10 +26,12 @@ export async function getCompany(ticker:string){
  return res.json();
 }
 export type AuditLayer={key:string;label:string;companies:number;total:number;coverage_pct:number;status:string};
-export async function getDataAudit(){
+export type FinancialGap={ticker:string;status:string;ttm_period?:string|null;latest_report?:{period_end:string}|null;missing_fields?:string[]};
+export type DataAudit={universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[];financial_checked_at?:string|null;financial_quality?:{universe_checked:number;current_ttm:number;current_complete:number;field_coverage:Record<string,number>;status_counts:Record<string,number>}|null;financial_gaps?:FinancialGap[]};
+export async function getDataAudit():Promise<DataAudit>{
  const res=await apiFetch("/api/v1/research/data-audit",{cache:"no-store"});
  if(!res?.ok) return {universe:503,layers:[] as AuditLayer[],missing_price_tickers:[] as string[],notes:["Backend unavailable"]};
- return res.json() as Promise<{universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[]}>;
+ return res.json();
 }
 
 export async function getSignals(){

@@ -30,10 +30,43 @@ class SECProvider:
             if r.is_error: raise RuntimeError(f"SEC companyfacts failed with HTTP {r.status_code}")
             return ProviderValue(r.json(),Provenance("sec",url,datetime.now(timezone.utc)))
 
+    async def submissions(self,cik:str|int)->dict:
+        cik10=str(cik).replace("CIK","").zfill(10)
+        url=f"{self.BASE_URL}/submissions/CIK{cik10}.json"
+        async with httpx.AsyncClient(timeout=30,headers={"User-Agent":self.user_agent}) as client:
+            r=await client.get(url)
+            if r.is_error:
+                raise RuntimeError(f"SEC submissions failed with HTTP {r.status_code}")
+            return r.json()
+
+
+def latest_financial_report(submissions:dict):
+    """A successful facts download is checked against the actual filings list."""
+    recent=((submissions.get("filings") or {}).get("recent") or {})
+    result=[]
+    for index,form in enumerate(recent.get("form") or []):
+        if form not in ("10-K","10-K/A","10-Q","10-Q/A","20-F","20-F/A","40-F","40-F/A"):
+            continue
+        def value(key):
+            values=recent.get(key) or []
+            return values[index] if index<len(values) else None
+        period=value("reportDate")
+        if period:
+            result.append({"period_end":period,"filed_date":value("filingDate"),"form":form})
+    return max(result,key=lambda r:(r["period_end"],r["filed_date"] or "")) if result else None
+
+
+def _fact_priority(filed,alias_index,tag,key):
+    # For banks, contract revenue can cover fees alone. Prefer explicitly
+    # reported total revenue net of interest when available for that period.
+    bank_total=key=="revenue" and tag=="RevenuesNetOfInterestExpense"
+    return (bank_total,filed or "",-alias_index)
+
 def facts_by_period(data: dict, years: int = 10):
     facts = (data.get("facts") or {}).get("us-gaap") or {}
     aliases = {
         "revenue": [
+            "RevenuesNetOfInterestExpense",
             "RevenueFromContractWithCustomerExcludingAssessedTax",
             "RevenueFromContractWithCustomerIncludingAssessedTax",
             "Revenues",
@@ -56,7 +89,6 @@ def facts_by_period(data: dict, years: int = 10):
         "debt_current": [
             "LongTermDebtAndFinanceLeaseObligationsCurrent",
             "LongTermDebtCurrent",
-            "ShortTermBorrowings",
         ],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
@@ -69,13 +101,12 @@ def facts_by_period(data: dict, years: int = 10):
 
     def rows_for(key):
         found = []
-        for tag in aliases[key]:
+        for alias_index,tag in enumerate(aliases[key]):
             node = facts.get(tag) or {}
             for unit in units.get(key, ["USD"]):
                 for x in (node.get("units") or {}).get(unit) or []:
                     if (
-                        x.get("form") in ("10-K", "10-K/A")
-                        and x.get("fp") == "FY"
+                        x.get("form") in ("10-K", "10-K/A","20-F","20-F/A","40-F","40-F/A")
                         and x.get("end")
                         and x.get("val") is not None
                     ):
@@ -89,9 +120,7 @@ def facts_by_period(data: dict, years: int = 10):
                                 continue
                             if not 300 <= days <= 430:
                                 continue
-                        found.append(x)
-            if found:
-                break
+                        found.append({**x,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
         return found
 
     out = {}
@@ -100,9 +129,9 @@ def facts_by_period(data: dict, years: int = 10):
             d = x["end"]
             rec = out.setdefault(d, {"period_end": d})
             marker = "_filed_" + key
-            if (x.get("filed") or "") >= rec.get(marker, ""):
+            if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
-                rec[marker] = x.get("filed") or ""
+                rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):
                     rec["accn"] = x["accn"]
@@ -110,8 +139,8 @@ def facts_by_period(data: dict, years: int = 10):
     for rec in out.values():
         if rec.get("debt_total") is not None:
             rec["total_debt"] = rec["debt_total"]
-        elif rec.get("debt_current") is not None or rec.get("debt_noncurrent") is not None:
-            rec["total_debt"] = float(rec.get("debt_current") or 0) + float(rec.get("debt_noncurrent") or 0)
+        elif rec.get("debt_current") is not None and rec.get("debt_noncurrent") is not None:
+            rec["total_debt"] = float(rec["debt_current"]) + float(rec["debt_noncurrent"])
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):
@@ -136,6 +165,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
     facts = (data.get("facts") or {}).get("us-gaap") or {}
     aliases = {
         "revenue": [
+            "RevenuesNetOfInterestExpense",
             "RevenueFromContractWithCustomerExcludingAssessedTax",
             "RevenueFromContractWithCustomerIncludingAssessedTax",
             "Revenues",
@@ -158,7 +188,6 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
         "debt_current": [
             "LongTermDebtAndFinanceLeaseObligationsCurrent",
             "LongTermDebtCurrent",
-            "ShortTermBorrowings",
         ],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
@@ -171,13 +200,12 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
 
     def rows_for(key):
         found = []
-        for tag in aliases[key]:
+        for alias_index,tag in enumerate(aliases[key]):
             node = facts.get(tag) or {}
             for unit in units.get(key, ["USD"]):
                 for x in (node.get("units") or {}).get(unit) or []:
                     if (
-                        x.get("form") in ("10-Q", "10-Q/A")
-                        and x.get("fp") in ("Q1", "Q2", "Q3")
+                        x.get("form") in ("10-Q", "10-Q/A","10-K","10-K/A")
                         and x.get("end")
                         and x.get("val") is not None
                     ):
@@ -191,9 +219,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
                                 continue
                             if not 60 <= days <= 120:
                                 continue
-                        found.append(x)
-            if found:
-                break
+                        found.append({**x,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
         return found
 
     out = {}
@@ -202,9 +228,9 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             d = x["end"]
             rec = out.setdefault(d, {"period_end": d})
             marker = "_filed_" + key
-            if (x.get("filed") or "") >= rec.get(marker, ""):
+            if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
-                rec[marker] = x.get("filed") or ""
+                rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):
                     rec["accn"] = x["accn"]
@@ -213,11 +239,10 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
         # A 10-Q cash-flow statement usually contains Q1, first-half, and
         # nine-month totals. Never store Q2/Q3 cumulative totals as quarters.
         direct_ends={end for end,rec in out.items() if rec.get(key) is not None}
-        for tag in aliases[key]:
+        for alias_index,tag in enumerate(aliases[key]):
             cumulative=[]
             for x in ((facts.get(tag) or {}).get("units") or {}).get("USD") or []:
-                if (x.get("form") not in ("10-Q", "10-Q/A")
-                    or x.get("fp") not in ("Q1", "Q2", "Q3")
+                if (x.get("form") not in ("10-Q", "10-Q/A","10-K","10-K/A")
                     or not x.get("start") or not x.get("end")
                     or not x.get("filed") or x.get("val") is None):
                     continue
@@ -230,15 +255,11 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             if not cumulative:
                 continue
             for current in cumulative:
-                fp=current["fp"]
-                if fp not in ("Q2", "Q3"):
-                    continue
                 days=(datetime.fromisoformat(current["end"])-datetime.fromisoformat(current["start"])).days
                 if days<130:
                     continue
-                previous_fp="Q1" if fp=="Q2" else "Q2"
                 previous=[x for x in cumulative
-                          if x["start"]==current["start"] and x["fp"]==previous_fp
+                          if x["start"]==current["start"]
                           and x["end"]<current["end"] and x["filed"]<=current["filed"]
                           and 60<=(datetime.fromisoformat(current["end"])-datetime.fromisoformat(x["end"])).days<=120]
                 if not previous:
@@ -247,16 +268,19 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
                 rec=out.setdefault(current["end"],{"period_end":current["end"]})
                 marker="_filed_"+key
                 # Prefer an explicitly reported single-quarter amount, if any.
-                if current["end"] not in direct_ends and current["filed"]>=rec.get(marker,""):
+                priority=_fact_priority(current["filed"],alias_index,tag,key)
+                if current["end"] not in direct_ends and priority>=rec.get(marker,(False,"",-999)):
                     rec[key]=float(current["val"])-float(prior["val"])
-                    rec[marker]=current["filed"]
+                    rec[marker]=priority
                     rec["filed_date"]=max(rec.get("filed_date") or "",current["filed"])
+                    if current.get("accn"):
+                        rec["accn"]=current["accn"]
 
     for rec in out.values():
         if rec.get("debt_total") is not None:
             rec["total_debt"] = rec["debt_total"]
-        elif rec.get("debt_current") is not None or rec.get("debt_noncurrent") is not None:
-            rec["total_debt"] = float(rec.get("debt_current") or 0) + float(rec.get("debt_noncurrent") or 0)
+        elif rec.get("debt_current") is not None and rec.get("debt_noncurrent") is not None:
+            rec["total_debt"] = float(rec["debt_current"]) + float(rec["debt_noncurrent"])
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):
@@ -276,7 +300,7 @@ def shares_outstanding_by_period(data: dict, max_points: int = 40):
     candidates = []
     for namespace, tag in (
         ("dei", "EntityCommonStockSharesOutstanding"),
-        ("us-gaap", "CommonStocksIncludingAdditionalPaidInCapitalMember"),
+        ("us-gaap", "CommonStockSharesOutstanding"),
     ):
         node = ((facts.get(namespace) or {}).get(tag) or {})
         for x in (node.get("units") or {}).get("shares") or []:
@@ -286,8 +310,6 @@ def shares_outstanding_by_period(data: dict, max_points: int = 40):
                 and x.get("val") is not None
             ):
                 candidates.append(x)
-        if candidates:
-            break
     out={}
     for x in candidates:
         d=x["end"]

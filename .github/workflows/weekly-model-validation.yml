@@ -1,0 +1,52 @@
+name: Weekly Top Five Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/app/research/weekly_ranker.py"
+      - "services/api/app/research/weekly_rank_metrics.py"
+      - "services/api/scripts/validate_weekly_ranker.py"
+      - ".github/workflows/weekly-model-validation.yml"
+  schedule:
+    - cron: "45 9 * * 6"
+      timezone: "Asia/Jerusalem"
+
+concurrency:
+  group: stocks-analyzer-weekly-top-five-validation
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Test weekly execution and promotion rules
+        run: python -m pytest tests/test_weekly_ranker.py tests/test_signal_execution.py -q
+      - name: Validate five-day ranking and downside estimates
+        run: python scripts/validate_weekly_ranker.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-top-five-validation
+          path: services/api/weekly_ranker_validation.json
+          if-no-files-found: ignore

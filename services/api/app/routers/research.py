@@ -5,6 +5,7 @@ from ..research.fundamentals import derive as derive_fundamentals
 from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
 from ..research.validation_gate import validated_horizons
 from ..research.signal_history import complete_oldest_signal_cohort
+from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
@@ -99,7 +100,8 @@ def system_health():
     db=get_supabase()
     runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
     source_runs=(db.table("pipeline_runs").select("*").eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(1).execute().data or [])
-    model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message,results").order("started_at",desc=True).limit(1).execute().data or [])
+    model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message,results").neq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
+    ranker_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,error_message,results").eq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
     latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
@@ -109,6 +111,12 @@ def system_health():
     if model_run:
         model_run["validated_horizons"]=list(validated_horizons(model_run))
         model_run.pop("results",None)
+    ranker_run=ranker_runs[0] if ranker_runs else None
+    if ranker_run:
+        report=ranker_run.pop("results",None) or {}
+        ranker_run["promotion_passed"]=ranker_is_validated({**ranker_run,"results":report})
+        ranker_run["selection"]=report.get("selection")
+        ranker_run["holdout"]=report.get("holdout")
     return {
         "status":run.get("status") if run else "not_run",
         "last_run":run,
@@ -116,6 +124,7 @@ def system_health():
         "latest_feature_date":feature[0]["feature_date"] if feature else None,
         "research_sources_run":source_run,
         "model_validation":model_run,
+        "weekly_ranker_validation":ranker_run,
         "coverage":{
             "universe":audit.get("universe",0),
             "fundamentals":audit.get("fundamentals",0),

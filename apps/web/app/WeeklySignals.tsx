@@ -15,7 +15,14 @@ type Signal = {
   sample_size: number | null;
   model_probability_up: number | null;
   model_expected_return: number | null;
-  model_diagnostics?: {ranking_mode?: string; selection_context?: {drawdown_60d?: number | null; upside_to_60d_high?: number | null}} | null;
+  model_diagnostics?: {
+    ranking_mode?: string;
+    entry_policy?: string;
+    execution_entry_date?: string;
+    selection_close?: number | null;
+    weekly_ranker?: {expected_excess_5d?: number; downside_p10_5d?: number; feature_coverage?: number} | null;
+    selection_context?: {drawdown_60d?: number | null; upside_to_60d_high?: number | null};
+  } | null;
   catalyst?: {reported_date?: string; surprise_percent?: number | null} | null;
   actual_return: number | null;
   excess_return: number | null;
@@ -43,7 +50,7 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
   });
 
   return <section className="panel" aria-label="Weekly research shortlist">
-    <div className="panelHead"><div><p className="eyebrow">FROZEN RESEARCH SHORTLIST</p><h2>Weekly candidates</h2></div><p className="muted">Selected after a validated market close. The list stays frozen; only the latest price and evaluated results change.</p></div>
+    <div className="panelHead"><div><p className="eyebrow">FROZEN RESEARCH SHORTLIST</p><h2>Weekly candidates</h2></div><p className="muted">Ranked for 5 trading days. Up to five qualify; companies can repeat. The list stays frozen while prices and evaluated results update.</p></div>
     <div className="scoreGrid">{[5, 10, 20].map(horizon => {
       const score = scorecard.by_horizon?.[String(horizon)];
       return <article key={horizon}><span>{horizon} trading days · observed results</span><strong>{score?.evaluated ? pct(score.win_rate) : "Pending"}</strong><small>{score?.evaluated ? `${score.evaluated} evaluated · ${pct(score.avg_excess_return)} average vs SPY` : "Waiting for matured signals"}</small></article>;
@@ -58,19 +65,23 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
           const drawdown = main.model_diagnostics?.selection_context?.drawdown_60d;
           const repeat = previousTickers.has(ticker);
           const calibrated = main.model_diagnostics?.ranking_mode === "calibrated_blend";
+          const ranker = main.model_diagnostics?.weekly_ranker;
+          const delayed = main.model_diagnostics?.entry_policy === "next_session_close";
           return <article className="weeklyStock" key={ticker}>
             <div className="weeklyStockHead"><span className="weeklyRank">#{main.rank}</span><Link href={`/company/${encodeURIComponent(ticker)}`} className="ticker">{ticker}</Link>{repeat && <small className="repeatTag">Also selected previously</small>}</div>
             <p className="stockName">{main.companies?.name ?? ""}</p>
-            <p className="modelStatus">{calibrated ? "Validated model contributes to rank" : "Historical screen · no validated model forecast"}</p>
-            <div className="weeklyEvidence"><b>Why it qualified</b><p>{main.sample_size ?? "—"} similar past setups · {pct(main.historical_up_rate)} rose over 5 trading days · median {pct(main.historical_median_return)}.</p>{main.catalyst?.reported_date && <small>Recent earnings reported {main.catalyst.reported_date}{main.catalyst.surprise_percent == null ? "" : ` · EPS surprise ${pct(main.catalyst.surprise_percent / 100)}`}</small>}</div>
+            <p className="modelStatus">{ranker ? "Weekly return ranker passed historical validation" : calibrated ? "Validated 5-day model contributes to rank" : "Historical screen · no validated model forecast"}</p>
+            <div className="weeklyEvidence"><b>Why it qualified</b>{ranker ? <p>5-day expected return vs SPY: {pct(ranker.expected_excess_5d)} · available model inputs: {pct(ranker.feature_coverage, 0)}.</p> : <p>{main.sample_size ?? "—"} similar past setups · {pct(main.historical_up_rate)} rose over 5 trading days · median {pct(main.historical_median_return)}.</p>}{main.catalyst?.reported_date && <small>Recent earnings reported {main.catalyst.reported_date}{main.catalyst.surprise_percent == null ? "" : ` · EPS surprise ${pct(main.catalyst.surprise_percent / 100)}`}</small>}</div>
+            {ranker && <div className="weeklyEvidence risk"><b>Estimated downside</b><p>5-day lower 10th-percentile return: {pct(ranker.downside_p10_5d)}. Losses can exceed this estimate; it is not a loss limit.</p></div>}
             <div className="weeklyEvidence risk"><b>Risk to check</b><p>{drawdown != null && Number(drawdown) <= -0.1 ? `The signal close was ${pct(Math.abs(Number(drawdown)))} below its 60-day high. A rebound is uncertain.` : (main.sample_size ?? 0) < 100 ? "The historical match has fewer than 100 examples. Its observed win rate may be unstable." : "Similar past setups do not guarantee this stock will rise. Review company news and downside before acting."}</p></div>
-            <div className="priceCompare"><div><small>Selection close · {cohort.date}</small><b>{money(main.entry_price)}</b></div><span>→</span><div><small>Latest close · {main.current_price_date ?? "—"}</small><b>{money(main.current_price)}</b></div></div>
-            <div className="weeklyMeta"><span>Research rank score {main.research_score == null ? "—" : Number(main.research_score).toFixed(1)}</span><span className={main.return_since_signal == null ? "" : main.return_since_signal >= 0 ? "positive" : "negative"}>Since selection {pct(main.return_since_signal)}</span></div>
+            {delayed && <p className="muted">Selection close {money(main.model_diagnostics?.selection_close)} · {cohort.date}. Evaluation enters at the next session close and holds for 5/10/20 trading days. Outcomes deduct a 0.2% cost assumption.</p>}
+            <div className="priceCompare"><div><small>{delayed ? `Evaluation entry · ${main.model_diagnostics?.execution_entry_date ?? "pending next close"}` : `Selection close · ${cohort.date}`}</small><b>{money(main.entry_price)}</b></div><span>→</span><div><small>Latest close · {main.current_price_date ?? "—"}</small><b>{money(main.current_price)}</b></div></div>
+            <div className="weeklyMeta"><span>{ranker ? "Ranking score (basis points)" : "Research rank score"} {main.research_score == null ? "—" : Number(main.research_score).toFixed(1)}</span><span className={main.return_since_signal == null ? "" : main.return_since_signal >= 0 ? "positive" : "negative"}>{delayed ? "Since entry (gross)" : "Since selection"} {pct(main.return_since_signal)}</span></div>
             <div className="horizonGrid">{horizons.map(horizon => <div key={horizon.id} className={`horizon ${horizon.actual_return == null ? "pending" : "done"}`}><b>{horizon.horizon_days} days</b><span>{horizon.model_probability_up == null ? "No validated P↑" : `Model P↑ ${pct(horizon.model_probability_up)}`}</span>{horizon.model_expected_return != null && <small>Model expected {pct(horizon.model_expected_return)}</small>}<small>{horizon.actual_return == null ? "Outcome pending" : `Observed ${pct(horizon.actual_return)}`}</small>{horizon.excess_return != null && <small>{pct(horizon.excess_return)} vs SPY</small>}</div>)}</div>
           </article>;
         })}</div>
       </div>;
     }) : <p className="muted">No shortlist has passed the validated weekly freeze yet.</p>}
-    <p className="muted">A stock may appear again in a later week. Historical setup rates are descriptive and are not model probabilities.</p>
+    <p className="muted">A stock may appear again in a later week. Historical setup rates are descriptive and are not model probabilities. Older cohorts retain their original close-to-close evaluation; new cohorts use next-session entry and costs.</p>
   </section>;
 }

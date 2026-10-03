@@ -50,9 +50,11 @@ def data_audit():
         return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
     layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Analyst estimates"),item("earnings","Historical earnings events")]
     snapshots=load_snapshots(db,(datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
+    universe_ids={r["id"] for r in db.table("companies").select("id").eq("is_sp500",True).execute().data or []}
     grouped={}
     for row in snapshots:
-        grouped.setdefault(row["company_id"],[]).append(row)
+        if row["company_id"] in universe_ids:
+            grouped.setdefault(row["company_id"],[]).append(row)
     count=sum(consensus_score(history,datetime.now(timezone.utc).date().isoformat())["available"] for history in grouped.values())
     layers.append({"key":"analyst_consensus","label":"Current analyst recommendations","companies":count,"total":total,
                    "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})

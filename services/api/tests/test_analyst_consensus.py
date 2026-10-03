@@ -112,3 +112,20 @@ def test_blocked_provider_is_reported_without_fabricating_data(monkeypatch,tmp_p
         ingest.refresh(db,Provider(),delay=0)
     assert db.snapshots==[] and db.runs[-1]["status"]=="error"
     assert db.runs[-1]["metadata"]["current_companies"]==0
+
+
+def test_cache_does_not_treat_an_older_month_as_current_usable_coverage(monkeypatch,tmp_path):
+    monkeypatch.setattr(ingest,"API_DIR",tmp_path)
+    now=datetime.now(timezone.utc)
+    current=now.date().replace(day=1)
+    previous=(current-timedelta(days=1)).replace(day=1)
+    db=Db()
+    db.snapshots=[snapshot(observed_at=now.isoformat(),period_date=current.isoformat(),strong_buy=2),
+                  snapshot(observed_at=now.isoformat(),period_date=previous.isoformat(),strong_buy=10)]
+    class Provider:
+        source="yahoo_finance"
+        def fetch(self,ticker):return [],None
+    with pytest.raises(RuntimeError,match="No usable"):
+        ingest.refresh(db,Provider(),delay=0)
+    assert db.runs[-1]["metadata"]["reused"]==0
+    assert db.runs[-1]["metadata"]["current_companies"]==0

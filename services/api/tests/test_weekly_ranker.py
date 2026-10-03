@@ -21,7 +21,8 @@ def test_missing_outcomes_do_not_remove_stock_before_selection():
 
 def test_holdout_cannot_choose_variant(monkeypatch):
     dates = [(date(2020, 1, 3)+timedelta(weeks=i)).isoformat() for i in range(200)]
-    records = [{"date": day, "target_excess": .01} for day in dates]
+    records = [{"date": day, "target_excess": .01,
+                "label_end_date": (date.fromisoformat(day)+timedelta(days=10)).isoformat()} for day in dates]
     boundary = dates[160]
     calls = []
     monkeypatch.setattr(ranker, "walk_forward", lambda rows, days: {"first": days[0]})
@@ -39,3 +40,5 @@ def test_holdout_cannot_choose_variant(monkeypatch):
     assert result["selected_variant"] == "expected_excess"
     assert result["holdout"]["mean_improvement_vs_screen"] == -.01
     assert (boundary, "downside_aware") not in calls
+    assert result["selection_last_exit_date"] < boundary
+    assert result["purged_selection_weeks"] == 1

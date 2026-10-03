@@ -41,7 +41,7 @@ jobs:
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
       - name: Test weekly execution and promotion rules
-        run: python -m pytest tests/test_weekly_ranker.py tests/test_signal_execution.py -q
+        run: python -m pytest tests/test_weekly_ranker.py tests/test_weekly_rank_metrics.py tests/test_signal_execution.py -q
       - name: Validate five-day ranking and downside estimates
         run: python scripts/validate_weekly_ranker.py
       - uses: actions/upload-artifact@v4

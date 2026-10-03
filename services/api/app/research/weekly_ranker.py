@@ -175,8 +175,11 @@ def validate(prepared):
         raise RuntimeError("At least 180 matured weekly cross-sections are required")
     first = int(len(mature_dates) * .6)
     second = int(len(mature_dates) * .8)
-    selection_dates = mature_dates[first:second]
     holdout_dates = mature_dates[second:]
+    end_dates = {r["date"]: r["label_end_date"] for r in records if r["target_excess"] is not None}
+    # Variant choice must be possible before the first holdout recommendation.
+    # The last selection week's delayed exit can cross this boundary.
+    selection_dates = [d for d in mature_dates[first:second] if end_dates[d] < holdout_dates[0]]
     selection_outputs = walk_forward(records, selection_dates)
     selection = {v: evaluate(selection_outputs, v) for v in VARIANTS}
     # Pick the variant exclusively on the middle period, before holdout runs.
@@ -193,6 +196,8 @@ def validate(prepared):
         "holdout": holdout, "holdout_cohorts": holdout_cohorts,
         "latest_feature_date": prepared["latest_date"], "features": FEATURES,
         "selection_start": selection_dates[0], "holdout_start": holdout_dates[0],
+        "selection_last_exit_date": max(end_dates[d] for d in selection_dates),
+        "purged_selection_weeks": second - first - len(selection_dates),
         "limitations": [
             "Historical universe and sector classifications use current S&P 500 members (survivorship bias).",
             "Historical earnings adjustments in the screen benchmark can include provider revisions; the ranker uses prices/context only.",

@@ -24,6 +24,8 @@ anchor. Retraining happens every 13 evaluated weeks. The first 60% of matured
 weekly dates provides initial history; the next 20% selects the fixed variant;
 the final 20% independently audits that chosen variant. The model can expand
 its training history during the audit, using only labels matured at each fit.
+Selection cohorts whose delayed exits cross the final audit boundary are
+purged before variant choice, so that choice is knowable at the first audit anchor.
 
 The comparison screen reproduces the setup/catalyst fallback with the same
 input-coverage universe and delayed-entry dates. A missing outcome for a stock

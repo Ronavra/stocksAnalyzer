@@ -134,5 +134,6 @@ def ranker_is_validated(run):
                 and report.get("round_trip_cost") == ROUND_TRIP_COST
                 and report.get("selected_variant") in ("expected_excess", "downside_aware")
                 and report.get("selection_rule") == "middle_period_only"
+                and str(report.get("selection_last_exit_date") or "9999") < str(report.get("holdout_start") or "")
                 and period_passes(report.get("selection") or {})
                 and period_passes(report.get("holdout") or {}))

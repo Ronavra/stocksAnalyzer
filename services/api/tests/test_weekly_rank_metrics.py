@@ -49,12 +49,14 @@ def test_gate_rejects_weak_tail_cost_sensitivity_and_missing_evaluations():
     report = {"evaluation_protocol": PROTOCOL, "primary_horizon_days": 5,
               "entry_policy": "next_session_close", "round_trip_cost": ROUND_TRIP_COST,
               "selection_rule": "middle_period_only", "selected_variant": "expected_excess",
+              "selection_last_exit_date": "2026-01-01", "holdout_start": "2026-01-02",
               "selection": metrics, "holdout": metrics}
     run = {"status": "success", "model_version": RANKER_VERSION, "results": report}
     assert ranker_is_validated(run)
     assert not ranker_is_validated({**run, "results": {**report, "holdout": {**metrics, "lower_bound_vs_spy": -.001}}})
     assert not ranker_is_validated({**run, "status": "running"})
     assert not ranker_is_validated({**run, "results": {**report, "primary_horizon_days": 20}})
+    assert not ranker_is_validated({**run, "results": {**report, "selection_last_exit_date": "2026-01-05"}})
 
 
 def test_cash_week_has_no_trading_cost_and_is_not_silently_removed():

@@ -10,9 +10,7 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
-from app.research.calibrated_model import MODEL_VERSION, fit_models, predict_current
 from app.research.earnings_catalysts import catalyst_adjustment, recent_earnings
-from app.research.validation_gate import validated_horizons
 from app.research.weekly_rank_metrics import RANKER_VERSION, ROUND_TRIP_COST, ranker_is_validated
 from app.research.weekly_ranker import current_predictions
 
@@ -27,18 +25,6 @@ def current_candidates(rows):
     signal_date=max((str(r.get("price_date") or "") for r in rows),default="")
     return signal_date,[r for r in rows if str(r.get("price_date") or "")==signal_date
                         and str(r.get("as_of_date") or "")==signal_date]
-
-def validated_groups(db):
-    rows=(db.table("model_validation_runs")
-          .select("started_at,finished_at,best_stage,best_groups,results,model_version,status")
-          .eq("model_version",MODEL_VERSION)
-          .order("started_at",desc=True).limit(1).execute().data or [])
-    if rows and isinstance(rows[0].get("best_groups"),list) and rows[0]["best_groups"]:
-        run=rows[0]
-        valid=validated_horizons(run)
-        if valid:
-            return tuple(run["best_groups"]),run.get("finished_at"),valid
-    return ("price","context","earnings","fundamentals"),None,()
 
 def validated_weekly_ranker(db, signal_date):
     rows=(db.table("model_validation_runs")
@@ -59,6 +45,8 @@ def validated_weekly_ranker(db, signal_date):
     return run
 
 def generate(db,top=5,horizons=(5,10,20),force=False):
+    if not 1<=top<=5:
+        raise ValueError("Weekly shortlist size must be between one and five")
     rows=db.rpc("research_dashboard_candidates").execute().data or []
     if not rows:
         raise RuntimeError("No setup snapshots available; weekly cohort not published")
@@ -74,18 +62,9 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
 
     ranker_run=validated_weekly_ranker(db,signal_date)
     ranked=current_predictions(db,ranker_run["results"]["selected_variant"],signal_date) if ranker_run else {}
-    groups,validated_at,validated_horizons=validated_groups(db)
-    print("Validated production feature groups=",groups,"validated_at=",validated_at,"horizons=",validated_horizons)
-    models,model_meta=fit_models(db,groups=groups) if validated_horizons and not ranker_run else ({},{})
-    predictions,prediction_date=predict_current(db,models) if models else ({},None)
-    if prediction_date!=signal_date:
-        predictions={}
-    valid_horizons=[
-        h for h,m in models.items()
-        if h in validated_horizons and m.diagnostics.get("calibration_beats_baseline")
-        and m.diagnostics.get("oof_rows",0)>=1000
-    ]
-    print("Calibrated model valid horizons=",valid_horizons,"latest_feature_date=",prediction_date)
+    # The older probability model uses selection-close labels. Its forecasts
+    # cannot be promoted against next-session-entry outcomes by the new gate.
+    print("Weekly next-close ranker promoted=",bool(ranker_run))
 
     earnings=recent_earnings(db,rows)
 
@@ -102,11 +81,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
         adj=catalyst_adjustment(e)
         heuristic_score=(score+adj) if score is not None else None
 
-        mp=predictions.get(r.get("company_id"),{})
-        primary_probability=(mp.get(5) or {}).get("probability_up") if 5 in valid_horizons else None
-        # Activate model influence only when walk-forward calibration beat the
-        # historical base-rate Brier score. Until then, the frozen heuristic
-        # remains the production fallback.
+        # The ranking and its validation share exactly the same entry policy.
         if ranker_run:
             if r["company_id"] not in ranked:
                 continue
@@ -115,25 +90,19 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
             ranking_mode="weekly_top_five"
         elif None in (score,up,med) or n<50 or up<.52 or med<=0:
             continue
-        elif primary_probability is not None:
-            model_score=100*primary_probability
-            rank_score=.70*model_score+.30*heuristic_score
-            ranking_mode="calibrated_blend"
         else:
             model_score=None
             rank_score=heuristic_score
             ranking_mode="heuristic_fallback"
-        picks.append((rank_score,r,e,mp,heuristic_score,model_score,ranking_mode))
+        picks.append((rank_score,r,e,heuristic_score,model_score,ranking_mode))
 
     picks.sort(key=lambda x:x[0],reverse=True)
     if not picks:
         raise RuntimeError(f"No qualifying candidates for market close {signal_date}; weekly cohort not published")
     today=date.today().isoformat()
     out=[]
-    for rank,(rank_score,r,e,mp,heuristic_score,model_score,ranking_mode) in enumerate(picks[:min(top,5)],1):
+    for rank,(rank_score,r,e,heuristic_score,model_score,ranking_mode) in enumerate(picks[:top],1):
         for horizon in horizons:
-            m=(mp.get(horizon) or {}) if horizon in valid_horizons else {}
-            diag=m.get("diagnostics") or {}
             rec={
                 "company_id":r["company_id"],
                 "signal_date":r.get("price_date") or r.get("as_of_date") or today,
@@ -147,14 +116,14 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
                 "sample_size":r.get("setup_sample_size"),
                 "catalyst":e or None,
                 "model_version":"weekly-signal-v5-"+ranking_mode,
-                "model_probability_up":m.get("probability_up"),
+                "model_probability_up":None,
                 "model_expected_return":(ranked[r["company_id"]]["expected_return"]-ROUND_TRIP_COST)
-                    if ranking_mode=="weekly_top_five" and horizon==5 else m.get("expected_return"),
-                "model_calibration_brier":diag.get("calibrated_brier"),
-                "model_baseline_brier":diag.get("baseline_brier"),
-                "model_feature_coverage":m.get("feature_coverage"),
+                    if ranking_mode=="weekly_top_five" and horizon==5 else None,
+                "model_calibration_brier":None,
+                "model_baseline_brier":None,
+                "model_feature_coverage":ranked[r["company_id"]]["feature_coverage"] if ranker_run else None,
                 "model_diagnostics":{
-                    "predictive_model":MODEL_VERSION,
+                    "predictive_model":RANKER_VERSION if ranker_run else None,
                     "ranking_mode":ranking_mode,
                     "primary_horizon_days":5,
                     "entry_policy":"next_session_close",
@@ -171,8 +140,6 @@ def generate(db,top=5,horizons=(5,10,20),force=False):
                     } if ranking_mode=="weekly_top_five" else None,
                     "heuristic_score":round(heuristic_score,4) if heuristic_score is not None else None,
                     "model_score":model_score,
-                    "training":diag,
-                    "model_meta":model_meta,
                     "selection_context":{
                         "upside_to_60d_high":r.get("upside_to_60d_high"),
                         "drawdown_60d":r.get("setup_drawdown_60d"),

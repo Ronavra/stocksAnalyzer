@@ -54,7 +54,6 @@ def candidate(cid, setup_date):
 
 def test_weekly_selection_excludes_old_setup_with_new_price(monkeypatch):
     db = Db([candidate(1, "2026-09-26"), candidate(2, "2026-09-29")])
-    monkeypatch.setattr(weekly, "validated_groups", lambda _: (("price",), None, ()))
     monkeypatch.setattr(weekly, "validated_weekly_ranker", lambda *_: None)
     monkeypatch.setattr(weekly, "recent_earnings", lambda *_: {})
 
@@ -82,7 +81,6 @@ def test_weekly_ranker_does_not_require_old_rebound_screen(monkeypatch):
     row = candidate(1, "2026-09-29")
     row.update({"setup_probability_up": .3, "setup_sample_size": 10, "setup_median_return_5d": -.03})
     db = Db([row])
-    monkeypatch.setattr(weekly, "validated_groups", lambda _: (("price",), None, ()))
     monkeypatch.setattr(weekly, "recent_earnings", lambda *_: {})
     monkeypatch.setattr(weekly, "validated_weekly_ranker", lambda *_: {
         "finished_at": "2026-09-29", "results": {"selected_variant": "expected_excess"}})

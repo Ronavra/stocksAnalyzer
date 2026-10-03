@@ -48,8 +48,10 @@ records and an artifact contain all results and limitations. Success means the
 job completed; promotion is computed separately. Production requires a passed
 record with a matching protocol and validation/data no more than eight days
 old, then refits on currently matured data and checks the latest feature date.
-If the weekly ranker fails, the existing gated five-day probability model or
-historical screen is retained. No old frozen cohort is replaced.
+If the weekly ranker fails, the historical screen is retained. The older
+probability model remains available in its own validation report, but its
+selection-close labels do not validate next-session-entry forecasts. No old
+frozen cohort is replaced.
 
 Current constituents and sector classifications cause historical survivorship
 bias. Historical catalyst adjustments may contain provider revisions; ranker

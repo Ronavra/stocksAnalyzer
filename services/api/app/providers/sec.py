@@ -1,4 +1,7 @@
 import os
+import re
+import math
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 import httpx
 from .base import ProviderValue, Provenance
@@ -39,6 +42,23 @@ class SECProvider:
                 raise RuntimeError(f"SEC submissions failed with HTTP {r.status_code}")
             return r.json()
 
+    async def filing_facts(self,cik,report):
+        """Read the official XBRL instance when Company Facts lags a filing."""
+        accession=report.get("accession_number") or ""
+        if not re.fullmatch(r"\d{10}-\d{2}-\d{6}",accession):
+            raise RuntimeError("Latest filing has no valid accession number")
+        directory=f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession.replace('-','')}"
+        async with httpx.AsyncClient(timeout=60,headers={"User-Agent":self.user_agent}) as client:
+            listing=await client.get(directory+"/index.json")
+            listing.raise_for_status()
+            names=[x.get("name","") for x in listing.json().get("directory",{}).get("item",[])]
+            instances=[name for name in names if re.fullmatch(r"[\w.-]+_htm.xml",name)]
+            if len(instances)!=1:
+                raise RuntimeError(f"Expected one extracted XBRL instance, found {len(instances)}")
+            result=await client.get(directory+"/"+instances[0])
+            result.raise_for_status()
+            return instance_company_facts(result.content,cik,report)
+
 
 def latest_financial_report(submissions:dict):
     """A successful facts download is checked against the actual filings list."""
@@ -52,8 +72,73 @@ def latest_financial_report(submissions:dict):
             return values[index] if index<len(values) else None
         period=value("reportDate")
         if period:
-            result.append({"period_end":period,"filed_date":value("filingDate"),"form":form})
+            item={"period_end":period,"filed_date":value("filingDate"),"form":form}
+            if value("accessionNumber"):
+                item["accession_number"]=value("accessionNumber")
+            result.append(item)
     return max(result,key=lambda r:(r["period_end"],r["filed_date"] or "")) if result else None
+
+
+def instance_company_facts(xml,cik,report):
+    """Convert consolidated, matching-entity standard XBRL facts to API shape.
+
+    Segmented, other-entity and custom facts are deliberately excluded rather
+    than guessing which business or share class they describe.
+    """
+    root=ET.fromstring(xml)
+    ns={"x":"http://www.xbrl.org/2003/instance"}
+    contexts={}; units={}
+    for context in root.findall("x:context",ns):
+        identifier=context.find("x:entity/x:identifier",ns)
+        if identifier is None or (identifier.text or "").lstrip("0")!=str(int(cik)):
+            continue
+        if any(el.tag.endswith(("}segment","}scenario")) for el in context.iter()):
+            continue
+        period=context.find("x:period",ns)
+        if period is None:
+            continue
+        start=period.findtext("x:startDate",namespaces=ns)
+        end=period.findtext("x:endDate",namespaces=ns) or period.findtext("x:instant",namespaces=ns)
+        if end:
+            contexts[context.attrib["id"]]={"start":start,"end":end}
+    for unit in root.findall("x:unit",ns):
+        measures=[(x.text or "").split(":")[-1] for x in unit.findall("x:measure",ns)]
+        if len(measures)==1 and measures[0] in ("USD","shares"):
+            units[unit.attrib["id"]]=measures[0]
+        elif (unit.findtext("x:divide/x:unitNumerator/x:measure",namespaces=ns) or "").split(":")[-1]=="USD" and (unit.findtext("x:divide/x:unitDenominator/x:measure",namespaces=ns) or "").split(":")[-1]=="shares":
+            units[unit.attrib["id"]]="USD/shares"
+    facts={}
+    for el in root:
+        context=contexts.get(el.attrib.get("contextRef")); unit=units.get(el.attrib.get("unitRef"))
+        if not context or not unit or not el.tag.startswith("{"):
+            continue
+        uri,tag=el.tag[1:].split("}",1)
+        namespace="us-gaap" if "/us-gaap/" in uri else "dei" if "/dei/" in uri else None
+        if namespace is None:
+            continue
+        try:
+            value=float(el.text)
+        except (TypeError,ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        row={**context,"val":value,"filed":report["filed_date"],"form":report["form"],"accn":report["accession_number"]}
+        facts.setdefault(namespace,{}).setdefault(tag,{"units":{}})["units"].setdefault(unit,[]).append(row)
+    if not facts:
+        raise RuntimeError("Filing instance contains no supported consolidated standard facts")
+    return {"facts":facts}
+
+
+def merge_company_facts(original,additional):
+    # Copy tag/units containers; preserve all prior filings and availability.
+    merged={"facts":{}}
+    for data in (original,additional):
+        for namespace,tags in (data.get("facts") or {}).items():
+            for tag,node in tags.items():
+                target=merged["facts"].setdefault(namespace,{}).setdefault(tag,{"units":{}})["units"]
+                for unit,rows in (node.get("units") or {}).items():
+                    target.setdefault(unit,[]).extend(rows)
+    return merged
 
 
 def _fact_priority(filed,alias_index,tag,key):

@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.providers.sec import facts_by_period, quarter_facts_by_period, latest_financial_report, shares_outstanding_by_period
+from app.providers.sec import facts_by_period, quarter_facts_by_period, latest_financial_report, shares_outstanding_by_period, instance_company_facts, merge_company_facts
 from app.research.financial_quality import CORE_FIELDS, company_quality, summarize_quality
 from app.research.fundamentals import derive
 from scripts.ingest_sec_fundamentals import build_ttm_rows
@@ -105,3 +105,40 @@ def test_latest_quarter_without_full_ttm_history_is_reported():
     company={"id":1,"ticker":"NEW"}; quarter={"period_end":"2026-06-30"}
     report={"period_end":"2026-06-30"}
     assert company_quality(company,[],[quarter],[],report,date(2026,10,3))["status"]=="insufficient_ttm_history"
+
+
+def test_annual_plus_matching_ytd_recovers_missing_intervening_quarter_eps():
+    annual=[{"period_end":"2024-12-28","filed_date":"2026-02-11","revenue":100,"net_income":10,"eps_diluted":4.33},
+            {"period_end":"2026-01-03","filed_date":"2026-02-11","revenue":120,"net_income":12,"eps_diluted":5.11}]
+    quarters=[{"period_end":end,"filed_date":"2026-07-28","revenue":30,"net_income":3,"eps_diluted":eps}
+              for end,eps in (("2025-03-29",1.13),("2025-06-28",1.35),("2025-09-27",None),("2026-04-04",1.25),("2026-07-04",1.42))]
+    latest=build_ttm_rows(annual,quarters)[-1]
+    assert latest["period_end"]=="2026-07-04"
+    assert abs(latest["eps_diluted"]-5.3)<1e-8
+    assert latest["filed_date"]=="2026-07-28"
+    # Missing Q1 in the comparable year cannot be replaced with Q2/Q3.
+    invalid=build_ttm_rows(annual,quarters[1:])
+    assert not invalid or invalid[-1]["period_end"]!="2026-07-04" or invalid[-1].get("eps_diluted") is None
+
+
+def test_filing_instance_keeps_consolidated_matching_entity_and_eps_units():
+    xml=b'''<x:xbrl xmlns:x="http://www.xbrl.org/2003/instance" xmlns:us="http://fasb.org/us-gaap/2026" xmlns:d="http://xbrl.org/2006/xbrldi" xmlns:c="http://example.com/custom">
+    <x:context id="whole"><x:entity><x:identifier scheme="http://www.sec.gov/CIK">0000001800</x:identifier></x:entity><x:period><x:startDate>2026-04-01</x:startDate><x:endDate>2026-06-30</x:endDate></x:period></x:context>
+    <x:context id="segment"><x:entity><x:identifier scheme="http://www.sec.gov/CIK">0000001800</x:identifier><x:segment><d:explicitMember dimension="us:SegmentAxis">us:SomeSegment</d:explicitMember></x:segment></x:entity><x:period><x:startDate>2026-04-01</x:startDate><x:endDate>2026-06-30</x:endDate></x:period></x:context>
+    <x:context id="subsidiary"><x:entity><x:identifier scheme="http://www.sec.gov/CIK">0000009999</x:identifier></x:entity><x:period><x:startDate>2026-04-01</x:startDate><x:endDate>2026-06-30</x:endDate></x:period></x:context>
+    <x:unit id="usd"><x:measure>iso4217:USD</x:measure></x:unit>
+    <x:unit id="eps"><x:divide><x:unitNumerator><x:measure>iso4217:USD</x:measure></x:unitNumerator><x:unitDenominator><x:measure>x:shares</x:measure></x:unitDenominator></x:divide></x:unit>
+    <us:Revenues contextRef="whole" unitRef="usd">100</us:Revenues>
+    <us:Revenues contextRef="segment" unitRef="usd">50</us:Revenues>
+    <us:Revenues contextRef="subsidiary" unitRef="usd">25</us:Revenues>
+    <c:Revenues contextRef="whole" unitRef="usd">999</c:Revenues>
+    <us:EarningsPerShareDiluted contextRef="whole" unitRef="eps">1.25</us:EarningsPerShareDiluted>
+    </x:xbrl>'''
+    report={"form":"10-Q","filed_date":"2026-07-28","accession_number":"0000001800-26-000100"}
+    data=instance_company_facts(xml,"1800",report)
+    old={"facts":{"us-gaap":{"Revenues":{"units":{"USD":[fact("2026-01-01","2026-03-31",80,"2026-04-29")]}}}}}
+    combined=merge_company_facts(old,data)
+    newest=quarter_facts_by_period(combined)[0]
+    assert newest["period_end"]=="2026-06-30" and newest["revenue"]==100
+    assert newest["eps_diluted"]==1.25 and newest["filed_date"]=="2026-07-28"
+    assert len(old["facts"]["us-gaap"]["Revenues"]["units"]["USD"])==1

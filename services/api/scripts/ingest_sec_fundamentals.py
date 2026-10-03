@@ -13,7 +13,7 @@ sys.path.insert(0, str(API_DIR))
 load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
-from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report
+from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, merge_company_facts
 from app.research.financial_quality import company_quality, summarize_quality
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
@@ -120,6 +120,40 @@ def build_ttm_rows(annual_rows, quarter_rows):
                 # rounded quarterly EPS or partly missing derived quarters.
                 rec={**rec,**out[rec["period_end"]]}
             out[rec["period_end"]]=rec
+    # A missing Q3/Q4 field can still be recovered exactly from a reported
+    # full year + current YTD - the same prior-year YTD. Require complete,
+    # matching Q1/Q2/Q3 sequences anchored to consecutive fiscal year ends.
+    for previous,a in zip(annual,annual[1:]):
+        previous_end=d(previous["period_end"]); a_end=d(a["period_end"])
+        if not 330<=(a_end-previous_end).days<=400:
+            continue
+        current=sorted((q for q in quarters if 0<(d(q["period_end"])-a_end).days<=310),key=lambda q:q["period_end"])
+        prior=sorted((q for q in quarters if previous_end<d(q["period_end"])<a_end),key=lambda q:q["period_end"])
+        for count in range(1,min(len(current),3)+1):
+            now=current[:count]; before=prior[:count]
+            if len(before)!=count:
+                continue
+            now_gaps=[(d(q["period_end"])-base).days for base,q in zip([a_end]+[d(q["period_end"]) for q in now[:-1]],now)]
+            prior_gaps=[(d(q["period_end"])-base).days for base,q in zip([previous_end]+[d(q["period_end"]) for q in before[:-1]],before)]
+            if not all(60<=gap<=120 for gap in now_gaps+prior_gaps):
+                continue
+            if any(abs((d(n["period_end"])-a_end).days-(d(p["period_end"])-previous_end).days)>14 for n,p in zip(now,before)):
+                continue
+            end=now[-1]["period_end"]
+            rec=out.setdefault(end,{"period_end":end})
+            used=False
+            for field in DURATION_FIELDS:
+                vals=[q.get(field) for q in now+before]
+                if rec.get(field) is None and a.get(field) is not None and all(v is not None for v in vals):
+                    rec[field]=float(a[field])+sum(float(q[field]) for q in now)-sum(float(q[field]) for q in before)
+                    used=True
+            for field in ("cash","total_debt","shares_outstanding"):
+                if rec.get(field) is None:
+                    rec[field]=now[-1].get(field)
+            if used:
+                rec["filed_date"]=max([rec.get("filed_date") or "",a.get("filed_date") or ""]+[q.get("filed_date") or "" for q in now+before])
+                rec["accn"]=now[-1].get("accn")
+    out={end:rec for end,rec in out.items() if sum(rec.get(k) is not None for k in ("revenue","operating_income","net_income","eps_diluted"))>=2}
     return [out[key] for key in sorted(out)]
 
 
@@ -183,7 +217,19 @@ async def main():
                 submission_error=str(exc)
             annual_rows = facts_by_period(result.value, a.years)
             quarter_rows = quarter_facts_by_period(result.value, a.quarters)
-            shares_map = shares_outstanding_by_period(result.value)
+            source_data=result.value
+            fallback_error=None; fallback_used=False
+            parsed=max([r["period_end"] for r in annual_rows+quarter_rows],default="")
+            if latest_report and parsed<latest_report["period_end"]:
+                try:
+                    source_data=merge_company_facts(source_data,await provider.filing_facts(company["cik"],latest_report))
+                    annual_rows=facts_by_period(source_data,a.years)
+                    quarter_rows=quarter_facts_by_period(source_data,a.quarters)
+                    fallback_used=True
+                except Exception as exc:
+                    fallback_error=str(exc)[:500]
+                    print(company["ticker"],"SEC filing fallback unavailable:",fallback_error)
+            shares_map = shares_outstanding_by_period(source_data)
 
             def attach_shares(rows):
                 share_dates=sorted(shares_map)
@@ -211,6 +257,10 @@ async def main():
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)
+            item["filing_fallback_used"]=fallback_used
+            item["companyfacts_latest_period"]=parsed or None
+            if fallback_error:
+                item["filing_fallback_error"]=fallback_error
             if submission_error:
                 item["status"]="filing_check_failed"
                 item["error"]=submission_error

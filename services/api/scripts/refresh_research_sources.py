@@ -1,4 +1,5 @@
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -54,6 +55,13 @@ def refresh_sources(earnings_only,include_guidance,timings,sec_only=False):
         )
         timings["valuation_seconds"]=run("build_daily_valuation.py")
 
+def financial_audit(started):
+    path=API_DIR/"sec_fundamentals_audit.json"
+    if not path.exists():
+        return None
+    report=json.loads(path.read_text())
+    return report if report.get("started_at","")>=started and report.get("scope")=="full_universe" else None
+
 def main():
     ap=argparse.ArgumentParser(description="Refresh non-price research sources with API-safe incremental rules")
     ap.add_argument("--max-age-hours",type=float,default=0,help="Skip the refresh if a successful source refresh is newer than this")
@@ -99,6 +107,7 @@ def main():
                     "valuation":audit.get("valuation"),
                 },
                 "guidance_enabled":a.include_guidance,
+                "financial_audit":financial_audit(started),
             },
         }
         if run_id:
@@ -110,7 +119,7 @@ def main():
                 "finished_at":datetime.now(timezone.utc).isoformat(),
                 "status":"error",
                 "error_message":str(exc)[:2000],
-                "metadata":{"mode":mode,"timings":timings},
+                "metadata":{"mode":mode,"timings":timings,"financial_audit":financial_audit(started)},
             }).eq("id",run_id).execute()
         traceback.print_exc()
         raise

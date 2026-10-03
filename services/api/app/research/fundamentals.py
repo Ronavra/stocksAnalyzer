@@ -22,8 +22,8 @@ def derive(latest: dict, previous: dict | None) -> FundamentalSignals:
     fcf_margin=_ratio(latest.get("free_cash_flow"),latest.get("revenue"))
     leverage=None
     fcf=latest.get("free_cash_flow")
-    if fcf and float(fcf)>0:
-        leverage=(float(latest.get("total_debt") or 0)-float(latest.get("cash") or 0))/float(fcf)
+    if fcf and float(fcf)>0 and latest.get("total_debt") is not None and latest.get("cash") is not None:
+        leverage=(float(latest["total_debt"])-float(latest["cash"]))/float(fcf)
     return FundamentalSignals(growth,margin,None if margin is None or prev_margin is None else margin-prev_margin,fcf_margin,leverage)
 
 def score_general(s: FundamentalSignals) -> tuple[float|None,float]:

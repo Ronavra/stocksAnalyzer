@@ -7,6 +7,8 @@ on:
     paths:
       - "services/api/app/providers/sec.py"
       - "services/api/scripts/ingest_sec_fundamentals.py"
+      - "services/api/app/research/financial_quality.py"
+      - "services/api/scripts/build_daily_valuation.py"
 
 concurrency:
   group: stocks-analyzer-market-data
@@ -44,3 +46,9 @@ jobs:
           fi
       - name: Refresh SEC fundamentals and valuation
         run: python scripts/refresh_research_sources.py --sec-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sec-financial-quality
+          path: services/api/sec_fundamentals_audit.json
+          if-no-files-found: ignore

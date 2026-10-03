@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import sys
 import time
+import json
 from datetime import datetime, timezone, date
 from pathlib import Path
 
@@ -12,7 +13,8 @@ sys.path.insert(0, str(API_DIR))
 load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
-from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period
+from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report
+from app.research.financial_quality import company_quality, summarize_quality
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
 
@@ -73,7 +75,9 @@ def build_ttm_rows(annual_rows, quarter_rows):
             and (a_end-d(q["period_end"])).days<=330
         ]
         candidates=sorted(candidates,key=lambda x:x["period_end"])[-3:]
-        if len(candidates)>=3:
+        gaps=[(d(right["period_end"])-d(left["period_end"])).days for left,right in zip(candidates,candidates[1:])]
+        if (len(candidates)==3 and all(60<=gap<=120 for gap in gaps)
+                and 60<=(a_end-d(candidates[-1]["period_end"])).days<=120):
             q4={"period_end":a["period_end"],"filed_date":a.get("filed_date"),"accn":a.get("accn")}
             for field in DURATION_FIELDS:
                 av=a.get(field); vals=[q.get(field) for q in candidates]
@@ -81,14 +85,24 @@ def build_ttm_rows(annual_rows, quarter_rows):
             q4["cash"]=a.get("cash")
             q4["total_debt"]=a.get("total_debt")
             q4["shares_outstanding"]=a.get("shares_outstanding")
-            quarters.append(q4)
+            existing=next((q for q in quarters if q["period_end"]==q4["period_end"]),None)
+            if existing:
+                for key,value in q4.items():
+                    if existing.get(key) is None:
+                        existing[key]=value
+                existing["filed_date"]=max(existing.get("filed_date") or "",q4.get("filed_date") or "")
+            else:
+                quarters.append(q4)
         prev_end=a_end
 
     quarters=sorted({q["period_end"]:q for q in quarters}.values(),key=lambda x:x["period_end"])
-    out=[]
+    # A real annual statement already covers twelve months. Missing quarters
+    # must not prevent that annual report from being available as TTM.
+    out={a["period_end"]:dict(a) for a in annual}
     for i in range(3,len(quarters)):
         window=quarters[i-3:i+1]
-        if (d(window[-1]["period_end"])-d(window[0]["period_end"])).days>430:
+        gaps=[(d(right["period_end"])-d(left["period_end"])).days for left,right in zip(window,window[1:])]
+        if not all(60<=gap<=120 for gap in gaps):
             continue
         rec={"period_end":window[-1]["period_end"]}
         for field in DURATION_FIELDS:
@@ -101,8 +115,12 @@ def build_ttm_rows(annual_rows, quarter_rows):
         rec["filed_date"]=max(filed) if filed else None
         rec["accn"]=window[-1].get("accn")
         if sum(rec.get(k) is not None for k in ("revenue","operating_income","net_income","eps_diluted"))>=2:
-            out.append(rec)
-    return out
+            if rec["period_end"] in out:
+                # The reported full year is more authoritative than a sum of
+                # rounded quarterly EPS or partly missing derived quarters.
+                rec={**rec,**out[rec["period_end"]]}
+            out[rec["period_end"]]=rec
+    return [out[key] for key in sorted(out)]
 
 
 
@@ -137,6 +155,8 @@ async def main():
 
     ticker_map = await provider.ticker_map()
     ok = failed = saved = ttm_companies = ttm_fcf_companies = 0
+    started_at=datetime.now(timezone.utc).isoformat()
+    quality=[]
 
     for i, company in enumerate(companies):
         if i and a.delay:
@@ -150,10 +170,17 @@ async def main():
         if not company.get("cik"):
             print(company["ticker"], "missing SEC CIK mapping")
             failed += 1
+            quality.append({"ticker":company["ticker"],"company_id":company["id"],"status":"missing_cik"})
             continue
 
         try:
             result = await provider.company_facts(company["cik"])
+            submission_error=None
+            try:
+                latest_report=latest_financial_report(await provider.submissions(company["cik"]))
+            except Exception as exc:
+                latest_report=None
+                submission_error=str(exc)
             annual_rows = facts_by_period(result.value, a.years)
             quarter_rows = quarter_facts_by_period(result.value, a.quarters)
             shares_map = shares_outstanding_by_period(result.value)
@@ -183,6 +210,11 @@ async def main():
             ttm_rows = build_ttm_rows(annual_rows, quarter_rows)
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
+            item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)
+            if submission_error:
+                item["status"]="filing_check_failed"
+                item["error"]=submission_error
+            quality.append(item)
             ok += 1
             ttm_companies += bool(ttm_rows)
             ttm_fcf_companies += bool(ttm_rows and ttm_rows[-1].get("free_cash_flow") is not None)
@@ -191,8 +223,14 @@ async def main():
         except Exception as exc:
             failed += 1
             print(company["ticker"], "SEC unavailable:", exc)
+            quality.append({"ticker":company["ticker"],"company_id":company["id"],"status":"refresh_failed","error":str(exc)[:500]})
 
     print(f"Done companies_ok={ok} failed={failed} TTM companies={ttm_companies} latest_TTM_FCF={ttm_fcf_companies} rows_saved={saved}")
+    report={"started_at":started_at,"finished_at":datetime.now(timezone.utc).isoformat(),
+            "scope":"full_universe" if a.all else "selected_companies",
+            "summary":summarize_quality(quality),"companies":quality}
+    (API_DIR/"sec_fundamentals_audit.json").write_text(json.dumps(report,indent=2)+"\n")
+    print("SEC financial quality:",json.dumps(report["summary"]))
     if a.all:
         validate_full_refresh(len(companies),ok,ttm_companies,ttm_fcf_companies)
 

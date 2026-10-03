@@ -77,12 +77,13 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
   });
 
   return <section className="panel" aria-label="Weekly research shortlist">
-    <div className="panelHead"><div><p className="eyebrow">WEEKLY PRICE TRACKER</p><h2>Recommended stocks</h2></div><p className="muted">Open a weekly group to compare its prices.</p></div>
+    <div className="panelHead"><div><p className="eyebrow">WEEKLY PRICE TRACKER</p><h2>Recommended stocks</h2></div><p className="muted">Latest recommendations below. Open an earlier group to see its prices.</p></div>
     <p className="timelineNote">Closing prices in USD. Windows count 5, 10 and 20 trading days after the recommendation date.</p>
     {cohorts.length ? cohorts.map((cohort, index) => {
       const previousTickers = new Set(cohorts[index + 1]?.stocks.map(stock => stock.ticker) ?? []);
-      return <details className="cohortAccordion" key={cohort.date}>
-        <summary><span className="cohortLabel"><b>Week of {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span>{index === 0 && <span className="latestTag">Latest group</span>}<span className="accordionChevron" aria-hidden="true">⌄</span></summary>
+      const Cohort = index === 0 ? "section" : "details";
+      return <Cohort className={index === 0 ? "latestCohort" : "cohortAccordion"} key={cohort.date}>
+        {index === 0 ? <div className="latestCohortHead"><span className="cohortLabel"><b>Latest recommendations · {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span></div> : <summary><span className="cohortLabel"><b>Week of {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span><span className="accordionChevron" aria-hidden="true">⌄</span></summary>}
         <div className="cohortBody">
           <div className="tableScroll" role="region" aria-label={`Prices for recommendations dated ${cohort.date}`} tabIndex={0}>
             <table className="priceTimeline"><caption className="srOnly">Recommendation and subsequent closing prices for {cohort.date}</caption><thead><tr><th scope="col">Stock</th><th scope="col">At recommendation</th><th scope="col">After 5 days</th><th scope="col">After 10 days</th><th scope="col">After 20 days</th><th scope="col">Latest daily close</th><th scope="col">Change since recommendation</th></tr></thead><tbody>
@@ -120,7 +121,7 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
         })}</div>
           </details>
         </div>
-      </details>;
+      </Cohort>;
     }) : <p className="muted">No shortlist has passed the validated weekly freeze yet.</p>}
     <details className="researchDetails"><summary>Historical performance and evaluation methodology</summary>
     <div className="scoreGrid">{[5, 10, 20].map(horizon => {

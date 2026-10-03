@@ -7,7 +7,8 @@ separate measurements and do not get averaged into the ranking.
 
 ## Dashboard price tracker
 
-Each weekly group is collapsed until opened. Its table shows the frozen
+The latest weekly group is always visible; earlier groups are collapsed until
+opened. Each table shows the frozen
 recommendation close, closes after 5/10/20 trading sessions, and the most recent
 stored daily close with its actual date. These display windows start **after the
 recommendation date**, using SPY's stored market sessions and the stock's exact

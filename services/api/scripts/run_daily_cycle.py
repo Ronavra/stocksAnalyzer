@@ -27,7 +27,7 @@ if __name__=="__main__":
     try:
         timings["ingest_prices_seconds"]=run("ingest_prices.py","--all","--daily-credit-budget",os.getenv("PRICE_CREDIT_BUDGET","550"))
         price_check=validate(db)
-        if price_check["price_companies"] < 500:
+        if price_check["missing_prices"] or price_check["universe_companies"] < 500:
             raise RuntimeError("Price ingestion incomplete for {}: {} companies; aborting before features/scan".format(price_check["expected_market_date"], price_check["price_companies"]))
         timings["features_seconds"]=run("build_daily_price_features.py")
         quality=db.rpc("price_session_quality",{"p_since":(datetime.now(timezone.utc).date()-timedelta(days=29)).isoformat()}).execute().data or {}

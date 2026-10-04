@@ -12,31 +12,10 @@ from app.market_calendar import latest_completed_session
 def latest_expected_market_date():
     return latest_completed_session()
 
+from app.research.market_freshness import market_freshness
+
 def validate(db):
-    expected=latest_expected_market_date()
-    ds=expected.isoformat()
-    prices=(db.table("price_history").select("company_id").eq("price_date",ds).execute().data or [])
-    features=(db.table("price_features").select("company_id").eq("feature_date",ds).execute().data or [])
-    price_ids={x["company_id"] for x in prices}
-    feature_ids={x["company_id"] for x in features}
-    universe=(db.table("companies").select("id,ticker").or_("is_sp500.eq.true,scoring_profile.eq.benchmark").execute().data or [])
-    missing_prices=[x["ticker"] for x in universe if x["id"] not in price_ids]
-    missing_features=[x["ticker"] for x in universe if x["id"] not in feature_ids]
-    current_ids={x["id"] for x in universe}
-    # Removed constituents may still have a price bar on this date. Count only
-    # the current universe and require every member (plus SPY) to be fresh.
-    pc=len(price_ids & current_ids); fc=len(feature_ids & current_ids)
-    ok=len(universe)>=500 and not missing_prices and not missing_features
-    error=None if ok else (
-        f"Freshness validation failed: expected {expected}; current_universe={len(universe)}; "
-        f"prices={pc}, features={fc}; "
-        f"missing_prices={missing_prices[:20]}; missing_features={missing_features[:20]}"
-    )
-    return {"ok":ok,"expected_market_date":ds,
-            "latest_price_date":ds if pc else None,"latest_feature_date":ds if fc else None,
-            "price_companies":pc,"feature_companies":fc,
-            "missing_prices":missing_prices,"missing_features":missing_features,
-            "error_message":error}
+    return market_freshness(db, latest_expected_market_date())
 
 if __name__=="__main__":
     result=validate(get_supabase())

@@ -14,6 +14,13 @@ class Query:
         self.rows = [r for r in self.rows if r.get(field) == value]
         return self
 
+    def order(self, *args, **kwargs):
+        return self
+
+    def range(self, start, end):
+        self.rows = self.rows[start:end+1]
+        return self
+
     def or_(self, *args):
         return self
 
@@ -25,7 +32,7 @@ class Db:
     def __init__(self, fresh_ids):
         self.universe = [{"id": i, "ticker": f"T{i}"} for i in range(1, 504)]
         # A removed stock still has a fresh bar but is not in the universe.
-        self.fresh = [{"company_id": i, "price_date": "2026-09-28", "feature_date": "2026-09-28"}
+        self.fresh = [{"company_id": i, "price_date": "2026-09-28", "feature_date": "2026-09-28", "close":100}
                       for i in [*fresh_ids, 999]]
 
     def table(self, name):
@@ -48,3 +55,17 @@ def test_all_current_members_fresh(monkeypatch):
     assert result["ok"]
     assert result["price_companies"] == 503
     assert result["feature_companies"] == 503
+
+def test_duplicate_price_providers_across_pages_do_not_hide_fresh_members(monkeypatch):
+    monkeypatch.setattr(daily, "latest_expected_market_date", lambda: date(2026, 9, 28))
+    db=Db(range(1,504))
+    db.fresh=[r.copy() for r in db.fresh for _ in range(3)]
+    assert daily.validate(db)["ok"]
+
+def test_invalid_saved_close_is_not_fresh(monkeypatch):
+    monkeypatch.setattr(daily, "latest_expected_market_date", lambda: date(2026, 9, 28))
+    db=Db(range(1,504))
+    db.fresh[0]["close"]=float("nan")
+    result=daily.validate(db)
+    assert not result["ok"]
+    assert result["missing_prices"]==["T1"]

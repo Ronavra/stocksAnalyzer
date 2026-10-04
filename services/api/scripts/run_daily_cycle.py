@@ -30,7 +30,7 @@ if __name__=="__main__":
         if price_check["price_companies"] < 500:
             raise RuntimeError("Price ingestion incomplete for {}: {} companies; aborting before features/scan".format(price_check["expected_market_date"], price_check["price_companies"]))
         timings["features_seconds"]=run("build_daily_price_features.py")
-        quality=db.rpc("price_session_quality",{"p_since":(datetime.now(timezone.utc).date()-timedelta(days=90)).isoformat()}).execute().data or {}
+        quality=db.rpc("price_session_quality",{"p_since":(datetime.now(timezone.utc).date()-timedelta(days=29)).isoformat()}).execute().data or {}
         if quality.get("incorrect_labels",0):
             raise RuntimeError(f"Incorrect market-session labels: {quality['incorrect_labels']}")
         timings["scan_seconds"]=run("scan_setups.py")

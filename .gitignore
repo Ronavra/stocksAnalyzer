@@ -8,6 +8,7 @@ node_modules/
 dist/
 .DS_Store
 *.tsbuildinfo
+services/api/research_release_verification.json
 services/api/financial_selection.json
 services/api/financial_ranking_comparison.json
 services/api/analyst_consensus_refresh.json

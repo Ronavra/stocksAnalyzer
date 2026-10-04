@@ -19,7 +19,7 @@ def upcoming_earnings(db, candidates, signal_date, observed_at=None):
         if is_trading_day(day):
             sessions.append(day.isoformat())
     events = (db.table("earnings_events")
-              .select("company_id,reported_date,event_time,source,captured_at")
+              .select("company_id,reported_date,event_time,estimated_eps,estimated_revenue,source,captured_at")
               .in_("company_id", [r["company_id"] for r in candidates])
               .gt("reported_date", signal_date).lte("reported_date", sessions[-1])
               .lte("captured_at", observed_at).is_("reported_eps", "null")

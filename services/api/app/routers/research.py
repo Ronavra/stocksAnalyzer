@@ -15,6 +15,7 @@ from .retry_clock_skew import RetryClockSkewRoute
 from ..research.prospective_metrics import prospective_metrics, paged
 from ..market_calendar import latest_completed_session, NY
 from zoneinfo import ZoneInfo
+from ..research.market_freshness import market_freshness
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
@@ -186,7 +187,18 @@ def system_health():
     last_day=datetime.fromisoformat(finished.replace("Z","+00:00")).astimezone(ZoneInfo("Asia/Jerusalem")).date() if finished else None
     overdue=israel_now.hour>=12 and (last_day!=israel_now.date() or (run or {}).get("status")!="success")
     expected=latest_completed_session(now.astimezone(NY)).isoformat()
-    fresh=bool(latest and feature and latest[0]["price_date"]==expected and feature[0]["feature_date"]==expected)
+    freshness=market_freshness(db,expected)
+    fresh=freshness["ok"]
+    repair_runs=(db.table("pipeline_runs").select("finished_at,metadata")
+                 .eq("pipeline","research_history_repair").eq("status","success")
+                 .order("finished_at",desc=True).limit(1).execute().data or [])
+    quality=((run or {}).get("metadata") or {}).get("price_session_quality")
+    quality_source="daily_market_research"
+    quality_checked_at=finished
+    if repair_runs and (repair_runs[0].get("finished_at") or "")>(finished or ""):
+        quality=(repair_runs[0].get("metadata") or {}).get("latest_quality")
+        quality_source="research_history_repair"
+        quality_checked_at=repair_runs[0].get("finished_at")
     source_run=source_runs[0] if source_runs else None
     model_run=model_runs[0] if model_runs else None
     if model_run:
@@ -202,7 +214,9 @@ def system_health():
         "status":"overdue" if overdue else run.get("status") if run else "not_run",
         "daily_schedule":{"timezone":"Asia/Jerusalem","time":"08:00","overdue":overdue,"exact_start_guaranteed":False},
         "market_data_current":fresh,"expected_market_date":expected,
-        "price_session_quality":((run or {}).get("metadata") or {}).get("price_session_quality"),
+        "market_freshness":freshness,
+        "price_session_quality":quality,
+        "price_session_quality_source":quality_source,"price_session_quality_checked_at":quality_checked_at,
         "last_run":run,
         "latest_price_date":latest[0]["price_date"] if latest else None,
         "latest_feature_date":feature[0]["feature_date"] if feature else None,

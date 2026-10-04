@@ -24,7 +24,7 @@ def main():
     run_id=created[0]['id']
     report={'revision':REVISION,'windows':[],'updated_feature_rows':0}
     try:
-        # The provider has its existing account/quota; no new data subscription.
+        # Try the primary account, then corroborated free fallback for omitted sessions.
         gaps=db.rpc('price_history_gaps',{'p_since':'2026-07-01','p_until':date.today().isoformat()}).execute().data or []
         if gaps:
             subprocess.run([sys.executable,str(API_DIR/'scripts/ingest_prices.py'),'--tickers',

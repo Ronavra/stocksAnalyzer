@@ -32,8 +32,8 @@ elif not args.all:
 
 print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
 requests_made=0
-quality=db.rpc("price_session_quality",{"p_since":str(args.repair_since or end-timedelta(days=90))}).execute().data or {}
-gaps={g["company_id"]:g for g in quality.get("gaps",[])}
+gap_rows=db.rpc("price_history_gaps",{"p_since":str(args.repair_since or end-timedelta(days=90)),"p_until":str(end)}).execute().data or []
+gaps={g["company_id"]:g for g in gap_rows}
 repaired_tickers=[]
 for idx,c in enumerate(companies):
  try:

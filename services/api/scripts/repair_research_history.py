@@ -25,8 +25,11 @@ def main():
     report={'revision':REVISION,'windows':[],'updated_feature_rows':0}
     try:
         # The provider has its existing account/quota; no new data subscription.
-        subprocess.run([sys.executable,str(API_DIR/'scripts/ingest_prices.py'),'--all',
-                        '--repair-since','2026-07-01','--daily-credit-budget','90'],check=True)
+        gaps=db.rpc('price_history_gaps',{'p_since':'2026-07-01','p_until':date.today().isoformat()}).execute().data or []
+        if gaps:
+            subprocess.run([sys.executable,str(API_DIR/'scripts/ingest_prices.py'),'--tickers',
+                            *[g['ticker'] for g in gaps],'--repair-since','2026-07-01',
+                            '--daily-credit-budget','90'],check=True)
         earliest=(db.table('price_features').select('feature_date').order('feature_date').limit(1).execute().data or [])
         if not earliest: raise RuntimeError('No features to repair')
         start=date.fromisoformat(earliest[0]['feature_date'])
@@ -39,8 +42,11 @@ def main():
             report['updated_feature_rows']+=result['updated_feature_rows']
             report['windows'].append(quality)
             print(json.dumps({'window':ds,**result,'quality':quality}),flush=True)
-            start+=timedelta(days=100)
-        recent=db.rpc('price_session_quality',{'p_since':(date.today()-timedelta(days=90)).isoformat()}).execute().data
+            if len(report['windows'])%10==0:
+                db.table('pipeline_runs').update({'metadata':report}).eq('id',run_id).execute()
+            start+=timedelta(days=30)
+        recent=db.rpc('price_session_quality',{'p_since':(date.today()-timedelta(days=29)).isoformat()}).execute().data
+        recent['gaps']=db.rpc('price_history_gaps',{'p_since':(date.today()-timedelta(days=90)).isoformat(),'p_until':date.today().isoformat()}).execute().data or []
         if recent['gaps']: raise RuntimeError(f"Recent provider gaps unresolved: {recent['gaps']}")
         report['latest_quality']=recent
         subprocess.run([sys.executable,str(API_DIR/'scripts/scan_setups.py')],check=True)

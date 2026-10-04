@@ -23,29 +23,7 @@ jobs:
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
       - name: Compile research pipeline
-        run: >
-          python -m py_compile
-          scripts/build_daily_price_features.py
-          scripts/ingest_sec_fundamentals.py
-          scripts/generate_weekly_signals.py
-          scripts/run_weekly_cycle.py
-          scripts/validate_daily_cycle.py
-          scripts/backtest_calibrated_model.py
-          scripts/ablation_predictive_model.py
-          scripts/build_daily_valuation.py
-          app/research/calibrated_model.py
-          app/research/weekly_ranker.py
-          app/research/financial_ranking.py
-          scripts/compare_financial_ranking.py
-          scripts/refresh_analyst_consensus.py
-          app/research/analyst_consensus.py
-          app/providers/analyst_consensus.py
-          app/research/weekly_rank_metrics.py
-          app/research/signal_execution.py
-          scripts/validate_weekly_ranker.py
-          app/providers/sec.py
-          app/providers/twelvedata.py
-          app/providers/massive.py
+        run: python -m compileall -q app scripts
       - name: Test research model and validation gate
         run: python -m pytest tests -q
 

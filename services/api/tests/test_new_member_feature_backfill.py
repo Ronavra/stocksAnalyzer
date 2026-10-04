@@ -76,6 +76,7 @@ def test_new_constituent_gets_full_price_feature_history(monkeypatch):
     db = Db()
     monkeypatch.setattr(client, "get_supabase", lambda: db)
     script = Path(__file__).resolve().parents[1] / "scripts" / "build_daily_price_features.py"
+    monkeypatch.setattr("sys.argv",[str(script)])
     runpy.run_path(str(script), run_name="__main__")
     fresh = [r for r in db.saved if r["company_id"] == 2]
     existing = [r for r in db.saved if r["company_id"] == 3]
@@ -83,3 +84,20 @@ def test_new_constituent_gets_full_price_feature_history(monkeypatch):
     assert len(existing) == 21
     assert fresh[25]["market_momentum_20d"] is not None
     assert fresh[10]["forward_return_20d"] is not None
+
+
+def test_missing_stock_day_keeps_market_horizon_and_nulls_bad_rolling_statistics():
+    from scripts.build_daily_price_features import build
+    db=Db()
+    missing=db.prices[2][30]["price_date"]
+    db.prices[2]=[r for r in db.prices[2] if r["price_date"]!=missing]
+    build(db)
+    rows={r["feature_date"]:r for r in db.saved if r["company_id"]==2}
+    stock_day=db.prices[1][25]["price_date"]
+    assert rows[stock_day]["forward_return_5d"] is None
+    next_day=db.prices[1][31]["price_date"]
+    assert rows[next_day]["return_1d"] is None
+    assert rows[next_day]["volatility_20d"] is None
+    assert rows[next_day]["drawdown_60d"] is None
+    earlier=db.prices[1][20]["price_date"]
+    assert rows[earlier]["forward_return_20d"]==141/121-1

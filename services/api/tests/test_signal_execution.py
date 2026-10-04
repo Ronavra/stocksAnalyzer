@@ -43,3 +43,10 @@ def test_missing_company_session_cannot_shift_entry_or_exit():
     update, entry_date = execution_update(signal(), prices()[:-1], calendar)
     assert entry_date is None
     assert "actual_return" not in update
+
+def test_duplicate_providers_cannot_mature_a_window_early():
+    calendar=[p['price_date'] for p in prices()[:3]]
+    duplicated=[{**p,'source':source} for p in prices()[:3] for source in ('fmp','twelvedata')]
+    update,entry=execution_update(signal(),duplicated,calendar*2)
+    assert entry is None
+    assert 'actual_return' not in update

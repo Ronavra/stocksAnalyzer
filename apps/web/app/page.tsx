@@ -1,4 +1,6 @@
-import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth} from "@/lib/api";
+import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth,getCohorts,safeLoad} from "@/lib/api";
+import RefreshStatus from "./RefreshStatus";
+import PolicyPerformance from "./PolicyPerformance";
 import SearchBar from "./SearchBar";
 import SetupTable from "./SetupTable";
 import WeeklySignals from "./WeeklySignals";
@@ -6,11 +8,23 @@ import WeeklyRankerStatus from "./WeeklyRankerStatus";
 import FinancialQuality from "./FinancialQuality";
 import FinancialRankingStatus from "./FinancialRankingStatus";
 export default async function Home(){
- const [candidates,audit,signals,scorecard,health]=await Promise.all([getCandidates(),getDataAudit(),getSignals(),getScorecard(),getSystemHealth()]);
+ const loaded=await Promise.all([
+  safeLoad(getCandidates,[]),safeLoad(getDataAudit,{universe:0,layers:[],missing_price_tickers:[],notes:[]}),
+  safeLoad(getSignals,[]),safeLoad(getScorecard,{by_horizon:{}}),
+  safeLoad(getSystemHealth,{status:"unavailable"}),safeLoad(getCohorts,[]),
+ ]);
+ const [candidateResult,auditResult,signalResult,scoreResult,healthResult,cohortResult]=loaded;
+ const candidates=candidateResult.data,audit=auditResult.data,signals=signalResult.data,scorecard=scoreResult.data,health=healthResult.data;
+ const sections=["Stock screener","Data coverage","Recommendations","Performance","System health","Recommendation groups"];
+ const errors=loaded.flatMap((result,i)=>result.error?[`${sections[i]}: ${result.error}`]:[]);
  const withSetup=candidates.filter(x=>x.opportunity_score!=null); const avgN=withSetup.length?Math.round(withSetup.reduce((s,x)=>s+(x.setup_sample_size||0),0)/withSetup.length):0;
  return <main>
-  <header className="dashboardHeader"><div><p className="eyebrow">S&amp;P 500 RESEARCH DESK</p><h1>StocksAnalyzer</h1><p className="sub">Weekly recommendations and their prices over time.</p></div><div className="updateSummary"><small>Latest daily market close</small><b>{health.latest_price_date || "Unavailable"}</b><span className={health.status==="error"?"negative":"muted"}>{health.status==="success"?"Daily update completed":health.status==="error"?"Daily update failed":health.status==="running"?"Daily update in progress":"Update status unavailable"}</span></div></header>
-  <WeeklySignals signals={signals} scorecard={scorecard}/>
+  <header className="dashboardHeader"><div><p className="eyebrow">S&amp;P 500 RESEARCH DESK</p><h1>StocksAnalyzer</h1><p className="sub">Weekly recommendations and their prices over time.</p></div><div className="updateSummary"><small>Latest daily market close</small><b>{health.latest_price_date || "Unavailable"}</b><span className={health.status==="error"?"negative":"muted"}>{health.status==="success"?"Daily update completed":health.status==="error"?"Daily update failed":health.status==="running"?"Daily update in progress":health.status==="overdue"?"Daily update overdue":"Update status unavailable"}</span></div></header>
+  <RefreshStatus/>
+  {errors.length>0&&<section className="panel" role="alert"><h2>Some data could not be loaded</h2>{errors.map(message=><p key={message}>{message}</p>)}</section>}
+  {health.daily_schedule?.overdue&&<p className="negative" role="status">Today&apos;s daily update is overdue. Latest stored close: {health.latest_price_date??"unavailable"}.</p>}
+  {!signalResult.error&&<WeeklySignals signals={signals} scorecard={scorecard} cohortRecords={cohortResult.data}/>}
+  <details className="dashboardDetails"><summary>Live performance of each selection policy<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody"><PolicyPerformance metrics={scorecard.prospective}/></div></details>
   <details className="dashboardDetails"><summary>Data health and coverage<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody">
   <section className="panel"><div className="panelHead"><div><p className="eyebrow">SYSTEM HEALTH</p><h2>{health.status==="success"?"✓ Data update validated":health.status==="error"?"⚠ Data update failed":"Data update status"}</h2></div><span className="badge">{health.status==="success"?"HEALTHY":health.status==="error"?"ERROR":"CHECKING"}</span></div><div className="definitions"><div><b>Latest market data</b><span>{health.latest_price_date||"—"}</span></div><div><b>Latest features</b><span>{health.latest_feature_date||"—"}</span></div><div><b>Last automated run</b><span>{health.last_run?.finished_at||health.last_run?.started_at||"No recorded run yet"}</span></div><div><b>Research sources checked</b><span>{health.research_sources_run?.finished_at||health.research_sources_run?.started_at||"Not refreshed yet"}</span></div><div><b>Fundamentals coverage</b><span>{health.coverage?`${health.coverage.fundamentals} / ${health.coverage.universe}`:"—"}</span></div><div><b>Earnings coverage</b><span>{health.coverage?`${health.coverage.earnings} / ${health.coverage.universe}`:"—"}</span></div><div><b>Predictive model</b><span>{health.model_validation?.validated_horizons?.length>=2?`${health.model_validation.best_stage} · ${health.model_validation.validated_horizons.join("/")}d validated`:health.model_validation?.status==="error"?"Validation error":health.model_validation?.status==="success"?"Validation completed · no model promoted":"Validation pending · heuristic ranking"}</span></div></div>{health.last_run?.error_message&&<p className="muted">Error: {health.last_run.error_message}</p>}{health.research_sources_run?.error_message&&<p className="muted">Research source error: {health.research_sources_run.error_message}</p>}{health.model_validation?.error_message&&<p className="muted">Model validation error: {health.model_validation.error_message}</p>}</section>
   <section className="panel"><p className="eyebrow">ANALYST DATA COLLECTION</p><h2>External recommendations</h2><p className="muted">{health.analyst_consensus_refresh?`${health.analyst_consensus_refresh.metadata?.current_companies??0} / ${health.analyst_consensus_refresh.metadata?.universe??0} usable companies · ${health.analyst_consensus_refresh.metadata?.coverage_status??health.analyst_consensus_refresh.status} · source ${health.analyst_consensus_refresh.metadata?.source??"—"} · finished ${health.analyst_consensus_refresh.finished_at??"—"}`:"Waiting for initial collection"}</p></section>
@@ -21,7 +35,7 @@ export default async function Home(){
   <details className="dashboardDetails"><summary>Search companies and browse the stock screener<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody">
   <SearchBar stocks={candidates.map(x=>({ticker:x.ticker,company:x.company,sector:x.sector}))}/>
   <section className="grid"><article><span>Universe</span><strong>{audit.universe||"—"}</strong><small>S&amp;P 500 constituents synced</small></article><article><span>Setup rows</span><strong>{withSetup.length||"—"}</strong><small>latest research snapshots returned by API</small></article><article><span>Avg. similar samples</span><strong>{avgN||"—"}</strong><small>historical observations behind current setup metric</small></article></section>
-  <section className="panel"><div className="panelHead"><div><p className="eyebrow">CURRENT DATA</p><h2>Latest setup screen</h2></div><p className="muted">45% financial · 35% price · 10% analysts · 10% earnings surprise · verified financials required</p></div>{candidates.length?<SetupTable rows={candidates}/>:<p className="muted">Backend unavailable. Start FastAPI on port 8000.</p>}</section>
+  <section className="panel"><div className="panelHead"><div><p className="eyebrow">CURRENT DATA</p><h2>Latest setup screen</h2></div><p className="muted">45% financial · 35% price · 10% analysts · 10% earnings surprise · verified financials required</p></div>{candidates.length?<SetupTable rows={candidates}/>:<p className="muted">No stocks are currently available in the screen.</p>}</section>
   </div></details>
   <details className="dashboardDetails"><summary>Scoring methodology and model validation<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody">
   <FinancialRankingStatus comparison={health.financial_ranking_policy?.comparison}/>

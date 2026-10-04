@@ -2,6 +2,9 @@ name: Weekly Top Five Validation
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Research History Repair"]
+    types: [completed]
   push:
     branches: [main]
     paths:
@@ -22,6 +25,7 @@ permissions:
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     defaults:

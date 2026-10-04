@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import sleep
 import logging
 
 from fastapi import HTTPException, Request, Response
@@ -19,7 +19,7 @@ class RetryClockSkewRoute(APIRoute):
             delays = (0, 1, 2, 4)
             for attempt, delay in enumerate(delays):
                 if delay:
-                    await asyncio.sleep(delay)
+                    await sleep(delay)
                 try:
                     return await handler(request)
                 except APIError as exc:

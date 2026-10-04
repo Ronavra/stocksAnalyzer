@@ -1,6 +1,7 @@
 """Display closes from recommendation day, independently of execution outcomes."""
 
 from math import isfinite
+from .price_window import canonical_prices
 
 HORIZONS = (5, 10, 20)
 PAGE_SIZE = 1000
@@ -17,7 +18,7 @@ def positive_price(value):
 def price_timelines(signals, prices, market_dates):
     """Use exact market sessions; never substitute another day's stock close."""
     by_company = {}
-    for row in prices:
+    for row in canonical_prices(prices):
         by_company.setdefault(row["company_id"], {})[row["price_date"]] = row
     calendar = sorted(set(market_dates))
     result = []
@@ -64,9 +65,9 @@ def load_price_timelines(db, signals):
     # Explicit inclusive ranges avoid Supabase's default 1,000-row truncation.
     start = 0
     while True:
-        page = (db.table("price_history").select("company_id,price_date,close")
+        page = (db.table("price_history").select("company_id,price_date,close,source")
                 .in_("company_id", ids).gte("price_date", first_date)
-                .order("price_date").order("company_id")
+                .order("price_date").order("company_id").order("source")
                 .range(start, start + PAGE_SIZE - 1).execute().data or [])
         prices.extend(page)
         if len(page) < PAGE_SIZE:

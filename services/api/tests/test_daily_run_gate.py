@@ -18,17 +18,20 @@ class Query:
         self.cutoff = datetime.fromisoformat(cutoff)
         return self
 
+    def order(self, *_args, **_kwargs):
+        return self
+
     def limit(self, *_args):
         return self
 
     def execute(self):
-        matching = [r for r in self.rows if r >= self.cutoff]
-        return type("Result", (), {"data": [{"id": 1}] if matching else []})()
+        matching=[r for r in self.rows if datetime.fromisoformat(r["started_at"])>=self.cutoff]
+        return type("Result", (), {"data": matching})()
 
 
 class Db:
     def __init__(self, starts):
-        self.query = Query(starts)
+        self.query = Query([{ "id":1,"started_at":r.isoformat(),"status":"success"} if isinstance(r,datetime) else r for r in starts])
 
     def table(self, _name):
         return self.query
@@ -61,3 +64,20 @@ def test_early_manual_run_is_counted_on_same_israel_day():
     now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
     db = Db([datetime(2026, 9, 28, 22, 30, tzinfo=timezone.utc)])
     assert not should_run(db, "schedule", now)
+
+
+def test_failed_attempt_can_retry():
+    now=datetime(2026,9,29,8,tzinfo=timezone.utc)
+    assert should_run(Db([{"started_at":"2026-09-29T05:00:00+00:00","status":"error"}]),"schedule",now)
+
+
+def test_running_attempt_blocks_until_workflow_timeout():
+    now=datetime(2026,9,29,8,tzinfo=timezone.utc)
+    assert not should_run(Db([{"started_at":"2026-09-29T05:00:00+00:00","status":"running"}]),"schedule",now)
+    assert should_run(Db([{"started_at":"2026-09-29T04:00:00+00:00","status":"running"}]),"schedule",now)
+
+
+def test_later_failure_cannot_hide_successful_attempt():
+    now=datetime(2026,9,29,8,tzinfo=timezone.utc)
+    assert not should_run(Db([{"started_at":"2026-09-29T06:00:00+00:00","status":"error"},
+                             {"started_at":"2026-09-29T05:00:00+00:00","status":"success"}]),"schedule",now)

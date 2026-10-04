@@ -24,20 +24,22 @@ def easter_sunday(year):
 
 def full_day_holidays(year):
     holidays={
-        observed(date(year,1,1)),
         nth_weekday(year,1,0,3),
         nth_weekday(year,2,0,3),
         easter_sunday(year)-timedelta(days=2),
         last_weekday(year,5,0),
-        observed(date(year,6,19)),
         observed(date(year,7,4)),
         nth_weekday(year,9,0,1),
         nth_weekday(year,11,3,4),
         observed(date(year,12,25)),
     }
-    # A New Year's Day observed on Dec 31 belongs to the following year's holiday.
-    next_new_year=observed(date(year+1,1,1))
-    if next_new_year.year==year: holidays.add(next_new_year)
+    # NYSE keeps December 31 open when the following New Year falls Saturday.
+    # https://www.nyse.com/markets/hours-calendars (2028 calendar footnote)
+    new_year=date(year,1,1)
+    if new_year.weekday()!=5: holidays.add(observed(new_year))
+    if year>=2022: holidays.add(observed(date(year,6,19)))
+    # Exceptional full-market closure announced by NYSE on 2024-12-30.
+    if year==2025: holidays.add(date(2025,1,9))
     return holidays
 
 def is_trading_day(d):

@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -24,14 +24,22 @@ def should_run(db, event_name, now=None, force=False):
     cutoff = datetime.combine(local_day, time.min, tzinfo=ISRAEL).astimezone(timezone.utc)
     rows = (
         db.table("pipeline_runs")
-        .select("id")
+        .select("id,status,started_at")
         .eq("pipeline", "daily_market_research")
         .gte("started_at", cutoff.isoformat())
-        .limit(1)
+        .order("started_at", desc=True)
+        .limit(100)
         .execute()
         .data or []
     )
-    return not rows
+    for row in rows:
+        if row.get("status") == "success":
+            return False
+        if row.get("status") == "running":
+            started = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+            if now - started < timedelta(minutes=195):
+                return False
+    return True
 
 
 if __name__ == "__main__":
@@ -43,4 +51,4 @@ if __name__ == "__main__":
     if output:
         with open(output, "a", encoding="utf-8") as fh:
             fh.write(f"run={str(run).lower()}\n")
-    print("Starting daily refresh" if run else "Daily refresh already started today; skipping duplicate trigger")
+    print("Starting daily refresh/retry" if run else "Daily refresh succeeded or is still active today; skipping duplicate trigger")

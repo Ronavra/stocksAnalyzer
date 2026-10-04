@@ -15,6 +15,7 @@ load_dotenv(API_DIR / ".env")
 from app.db.client import get_supabase
 from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, merge_company_facts
 from app.research.financial_quality import company_quality, summarize_quality
+from app.research.company_disclosures import current_reports
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
 
@@ -191,6 +192,7 @@ async def main():
     ok = failed = saved = ttm_companies = ttm_fcf_companies = 0
     started_at=datetime.now(timezone.utc).isoformat()
     quality=[]
+    disclosure_count=0
 
     for i, company in enumerate(companies):
         if i and a.delay:
@@ -210,11 +212,23 @@ async def main():
         try:
             result = await provider.company_facts(company["cik"])
             submission_error=None
+            disclosure_error=None
             try:
-                latest_report=latest_financial_report(await provider.submissions(company["cik"]))
+                submissions=await provider.submissions(company["cik"])
+                latest_report=latest_financial_report(submissions)
             except Exception as exc:
                 latest_report=None
                 submission_error=str(exc)
+            if not submission_error:
+                try:
+                    observed_at=datetime.now(timezone.utc).isoformat()
+                    disclosures=current_reports(company,submissions,observed_at)
+                    if disclosures:
+                        db.table("company_disclosures").upsert(disclosures,on_conflict="company_id,accession_number",returning="minimal",ignore_duplicates=True).execute()
+                        disclosure_count+=len(disclosures)
+                except Exception as exc:
+                    disclosure_error=str(exc)[:500]
+                    print(company["ticker"],"Disclosure collection failed:",type(exc).__name__)
             annual_rows = facts_by_period(result.value, a.years)
             quarter_rows = quarter_facts_by_period(result.value, a.quarters)
             source_data=result.value
@@ -261,6 +275,8 @@ async def main():
             item["companyfacts_latest_period"]=parsed or None
             if fallback_error:
                 item["filing_fallback_error"]=fallback_error
+            if disclosure_error:
+                item["disclosure_error"]=disclosure_error
             if submission_error:
                 item["status"]="filing_check_failed"
                 item["error"]=submission_error
@@ -278,7 +294,7 @@ async def main():
     print(f"Done companies_ok={ok} failed={failed} TTM companies={ttm_companies} latest_TTM_FCF={ttm_fcf_companies} rows_saved={saved}")
     report={"started_at":started_at,"finished_at":datetime.now(timezone.utc).isoformat(),
             "scope":"full_universe" if a.all else "selected_companies",
-            "summary":summarize_quality(quality),"companies":quality}
+            "summary":summarize_quality(quality),"companies":quality,"disclosure_events_processed":disclosure_count}
     (API_DIR/"sec_fundamentals_audit.json").write_text(json.dumps(report,indent=2)+"\n")
     print("SEC financial quality:",json.dumps(report["summary"]))
     if a.all:

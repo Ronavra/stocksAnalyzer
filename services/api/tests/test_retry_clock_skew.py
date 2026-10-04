@@ -14,7 +14,7 @@ def test_retries_only_future_jwt_error(monkeypatch):
     async def record_sleep(seconds):
         delays.append(seconds)
 
-    monkeypatch.setattr("app.routers.retry_clock_skew.asyncio.sleep", record_sleep)
+    monkeypatch.setattr("app.routers.retry_clock_skew.sleep", record_sleep)
     router = APIRouter(route_class=RetryClockSkewRoute)
     calls = []
 
@@ -38,7 +38,7 @@ def test_persistent_clock_skew_returns_503(monkeypatch):
     async def no_wait(_seconds):
         pass
 
-    monkeypatch.setattr("app.routers.retry_clock_skew.asyncio.sleep", no_wait)
+    monkeypatch.setattr("app.routers.retry_clock_skew.sleep", no_wait)
     router = APIRouter(route_class=RetryClockSkewRoute)
     calls = []
 
@@ -75,6 +75,11 @@ def test_scorecard_recovers_from_transient_postgrest_rejection(monkeypatch):
     calls = []
 
     class FakeQuery:
+        def order(self, *_args, **_kwargs): return self
+        def range(self, *_args): return self
+        def eq(self, *_args): return self
+        def limit(self, *_args): return self
+
         def select(self, _columns):
             return self
 
@@ -92,8 +97,8 @@ def test_scorecard_recovers_from_transient_postgrest_rejection(monkeypatch):
         pass
 
     monkeypatch.setattr("app.routers.research.get_supabase", FakeDb)
-    monkeypatch.setattr("app.routers.retry_clock_skew.asyncio.sleep", no_wait)
+    monkeypatch.setattr("app.routers.retry_clock_skew.sleep", no_wait)
     response = TestClient(api_app).get("/api/v1/research/scorecard")
     assert response.status_code == 200
     assert response.json()["overall"]["evaluated"] == 0
-    assert len(calls) == 2
+    assert len(calls) == 4 # prediction retry, then cohorts and benchmark lookup

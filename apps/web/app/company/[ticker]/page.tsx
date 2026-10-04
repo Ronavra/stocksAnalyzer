@@ -7,8 +7,9 @@ const ratio=(v:any)=>v==null?"—":Number(v).toFixed(2);
 const pct=(v:any)=>v==null?"—":`${(Number(v)*100).toFixed(1)}%`;
 const money=(v:any)=>{if(v==null)return "—";const n=Number(v);return n>=1e9?`$${(n/1e9).toFixed(1)}B`:n>=1e6?`$${(n/1e6).toFixed(1)}M`:`$${n.toLocaleString()}`};
 
-export default async function CompanyPage({params}:{params:{ticker:string}}){
- const data=await getCompany(params.ticker); const company=data?.company; const s=data?.snapshots?.[0]; const a=data?.analyst_assessment;
+export default async function CompanyPage({params}:{params:Promise<{ticker:string}>}){
+ const {ticker}=await params;
+ const data=await getCompany(ticker); const company=data?.company; const s=data?.snapshots?.[0]; const a=data?.analyst_assessment;
  if(!company)return <main><Link href="/">← Dashboard</Link><h1>Company not found</h1></main>;
  const metrics={"Opportunity score":s?.opportunity_score,"Historical up rate":pct(s?.setup_probability_up),"Median 5d":pct(s?.setup_median_return_5d),"To 60d high":pct(s?.upside_to_60d_high),"60d drawdown":pct(s?.setup_drawdown_60d),"Similar samples":s?.setup_sample_size==null?"—":String(Math.round(Number(s.setup_sample_size)))};
  const fs=a?.fundamentals; const financials=(data?.financials||[]).filter((x:any)=>x.revenue!=null).slice(0,5);
@@ -51,6 +52,7 @@ export default async function CompanyPage({params}:{params:{ticker:string}}){
  </div>
  {a?.invalidation_conditions?.length?<><h3>Reassess if</h3><ul>{a.invalidation_conditions.map((x:string,i:number)=><li key={i}>{x}</li>)}</ul></>:null}
  </section>
+ <details className="dashboardDetails"><summary>Official company disclosures</summary><div className="dashboardDetailsBody"><p className="muted">SEC current reports, separate from news sentiment. These events do not change the fixed selection weights.</p>{data.disclosures?.length?data.disclosures.map((event:any)=><p key={event.source_url}><a href={event.source_url} target="_blank" rel="noopener noreferrer">{event.headline}</a><small className="priceDate">Filed {event.filing_date} · first observed {event.observed_at}</small></p>):<p className="muted">No disclosures have been collected yet.</p>}</div></details>
  <section className="panel"><p className="eyebrow">HISTORY</p><h2>Stored research snapshots</h2><p className="muted">{data?.snapshots?.length||0} snapshots available · latest {s?.as_of_date||"—"}</p></section>
  </main>;
 }

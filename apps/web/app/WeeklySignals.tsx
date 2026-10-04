@@ -1,6 +1,6 @@
 import Link from "next/link";
 import AnalystConsensus from "./AnalystConsensus";
-import type {AnalystConsensus as Consensus} from "@/lib/api";
+import type {AnalystConsensus as Consensus, Cohort as CohortRecord} from "@/lib/api";
 
 type PriceWindow = {price: number | null; date: string | null; status: "complete" | "pending" | "missing" | "calendar_unavailable"};
 
@@ -28,6 +28,7 @@ type Signal = {
   model_expected_return: number | null;
   model_diagnostics?: {
     ranking_mode?: string;
+    upcoming_earnings?:{reported_date:string;event_time?:string|null;within_horizons:number[];date_status:string}|null;
     entry_policy?: string;
     execution_entry_date?: string;
     selection_close?: number | null;
@@ -64,8 +65,8 @@ function WindowCell({window, elapsed, horizon}: {window?: PriceWindow; elapsed?:
   return <><span className="priceMissing">{window?.status === "missing" ? "Price missing" : "Data unavailable"}</span><small className="priceDate">{window?.date ?? "Check data health"}</small></>;
 }
 
-export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; scorecard: Scorecard}) {
-  const dates = Array.from(new Set(signals.map(row => row.signal_date))).sort().reverse();
+export default function WeeklySignals({signals, scorecard, cohortRecords=[]}: {signals: Signal[]; scorecard: Scorecard; cohortRecords?:CohortRecord[]}) {
+  const dates = Array.from(new Set([...signals.map(row => row.signal_date),...cohortRecords.filter(row=>row.status==="no_picks").map(row=>row.signal_date)])).sort().reverse();
   const cohorts = dates.map(date => {
     const rows = signals.filter(row => row.signal_date === date);
     const tickers = Array.from(new Set(rows.map(row => row.companies?.ticker).filter((ticker): ticker is string => Boolean(ticker))));
@@ -73,7 +74,7 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
       const horizons = rows.filter(row => row.companies?.ticker === ticker).sort((a, b) => a.horizon_days - b.horizon_days);
       return {ticker, horizons, main: horizons[0]};
     }).sort((a, b) => (a.main.rank ?? 99) - (b.main.rank ?? 99));
-    return {date, stocks};
+    return {date, stocks,record:cohortRecords.find(row=>row.signal_date===date)};
   });
 
   return <section className="panel" aria-label="Weekly research shortlist">
@@ -85,10 +86,11 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
       return <Cohort className={index === 0 ? "latestCohort" : "cohortAccordion"} key={cohort.date}>
         {index === 0 ? <div className="latestCohortHead"><span className="cohortLabel"><b>Latest recommendations · {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span></div> : <summary><span className="cohortLabel"><b>Week of {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span><span className="accordionChevron" aria-hidden="true">⌄</span></summary>}
         <div className="cohortBody">
+          {cohort.record?.status==="no_picks"&&<p className="muted">No stocks met the selection requirements this week. The recorded decision is to stay in cash.</p>}
           <div className="tableScroll" role="region" aria-label={`Prices for recommendations dated ${cohort.date}`} tabIndex={0}>
             <table className="priceTimeline"><caption className="srOnly">Recommendation and subsequent closing prices for {cohort.date}</caption><thead><tr><th scope="col">Stock</th><th scope="col">At recommendation</th><th scope="col">After 5 days</th><th scope="col">After 10 days</th><th scope="col">After 20 days</th><th scope="col">Latest daily close</th><th scope="col">Change since recommendation</th></tr></thead><tbody>
               {cohort.stocks.map(({ticker, main}) => <tr key={ticker}>
-                <th scope="row" className="timelineStock"><span className="weeklyRank">#{main.rank ?? "—"}</span> <Link href={`/company/${encodeURIComponent(ticker)}`} className="ticker">{ticker}</Link><small>{main.companies?.name}</small></th>
+                <th scope="row" className="timelineStock"><span className="weeklyRank">#{main.rank ?? "—"}</span> <Link href={`/company/${encodeURIComponent(ticker)}`} className="ticker">{ticker}</Link><small>{main.companies?.name}</small>{main.model_diagnostics?.upcoming_earnings&&<small className="pricePending">Expected earnings {main.model_diagnostics.upcoming_earnings.reported_date} · {main.model_diagnostics.upcoming_earnings.event_time??"time unknown"}</small>}</th>
                 <td><PriceCell price={main.recommendation_price} date={main.recommendation_price_date ?? cohort.date}/></td>
                 {[5, 10, 20].map(horizon => <td key={horizon}><WindowCell window={main.price_windows?.[String(horizon)]} elapsed={main.trading_days_elapsed} horizon={horizon}/></td>)}
                 <td className="latestPriceCell"><PriceCell price={main.current_price} date={main.current_price_date}/></td>
@@ -122,7 +124,7 @@ export default function WeeklySignals({signals, scorecard}: {signals: Signal[]; 
           </details>
         </div>
       </Cohort>;
-    }) : <p className="muted">No shortlist has passed the validated weekly freeze yet.</p>}
+    }) : <p className="muted">No weekly decision has been published yet.</p>}
     <details className="researchDetails"><summary>Historical performance and evaluation methodology</summary>
     <div className="scoreGrid">{[5, 10, 20].map(horizon => {
       const score = scorecard.by_horizon?.[String(horizon)];

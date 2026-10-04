@@ -1,0 +1,9 @@
+type Horizon={published_cohorts:number;evaluated_cohorts:number;cash_cohorts:number;mean_net_return:number|null;mean_excess_return:number|null;beat_spy_cohort_rate:number|null};
+type Metrics={active_version:string;by_policy:Record<string,{cohorts:number;no_pick_cohorts:number;by_horizon:Record<string,Horizon>}>};
+const pct=(value:number|null|undefined)=>value==null?"Pending":`${(value*100).toFixed(2)}%`;
+export default function PolicyPerformance({metrics}:{metrics?:Metrics}){
+ if(!metrics) return <p className="muted">Live policy results are unavailable.</p>;
+ const policies=Object.keys(metrics.by_policy).sort((a,b)=>a===metrics.active_version?-1:b===metrics.active_version?1:a.localeCompare(b));
+ return <section className="panel"><h2>Observed weekly results</h2><p className="muted">Each row measures a complete, equal-weight weekly group after its original execution costs. Policies remain separate; weeks with no picks remain in cash. Windows overlap, so these are not independent samples or proof of forecast reliability.</p>
+ {policies.map(version=>{const policy=metrics.by_policy[version];return <div key={version}><h3>{version}{version===metrics.active_version?" · active policy":""}</h3><p className="muted">{policy.cohorts} published groups · {policy.no_pick_cohorts} weeks without picks</p>{policy.cohorts===0?<p className="muted">Awaiting the first frozen group under this policy.</p>:<div className="tableScroll"><table><thead><tr><th>Window</th><th>Completed groups</th><th>Cash groups</th><th>Average net return</th><th>Average vs SPY</th><th>Groups beating SPY</th></tr></thead><tbody>{[5,10,20].map(h=>{const row=policy.by_horizon[String(h)];return <tr key={h}><td>{h} days</td><td>{row?.evaluated_cohorts??0} / {row?.published_cohorts??0}</td><td>{row?.cash_cohorts??0}</td><td>{pct(row?.mean_net_return)}</td><td>{pct(row?.mean_excess_return)}</td><td>{pct(row?.beat_spy_cohort_rate)}</td></tr>;})}</tbody></table></div>}</div>;})}</section>;
+}

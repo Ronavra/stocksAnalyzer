@@ -3,7 +3,7 @@ name: Predictive Model Validation
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["SEC Fundamentals Refresh"]
+    workflows: ["SEC Fundamentals Refresh", "Research History Repair"]
     types: [completed]
   push:
     branches: [main]

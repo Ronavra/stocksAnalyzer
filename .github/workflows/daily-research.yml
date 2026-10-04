@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Run again even if today's daily refresh already started"
+        description: "Explicitly rerun even after a successful refresh today"
         type: boolean
         default: false
   schedule:
-    - cron: "17 8 * * *"
+    - cron: "0 8 * * *"
       timezone: "Asia/Jerusalem"
 
 concurrency:
@@ -53,7 +53,14 @@ jobs:
         id: daily_gate
         run: python scripts/daily_run_gate.py
       - name: Refresh market research and evaluate matured signals
+        id: market_refresh
         if: steps.daily_gate.outputs.run == 'true'
+        continue-on-error: true
+        run: python scripts/run_daily_cycle.py
+      - name: Retry failed market refresh within the same workflow
+        if: steps.market_refresh.outcome == 'failure'
+        env:
+          PRICE_CREDIT_BUDGET: '150'
         run: python scripts/run_daily_cycle.py
       - name: Confirm persisted pipeline health
         if: success() && steps.daily_gate.outputs.run == 'true'

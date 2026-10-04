@@ -1,6 +1,6 @@
 import unittest
 
-from app.research.price_window import recent_distinct_prices
+from app.research.price_window import recent_distinct_prices, session_return, canonical_prices
 
 
 class RecentDistinctPricesTest(unittest.TestCase):
@@ -32,3 +32,16 @@ class RecentDistinctPricesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+def test_exact_session_label_does_not_shift_over_a_hole():
+    days=[f'2026-08-{d:02d}' for d in range(1,8)]
+    rows={d:{'close':100+i} for i,d in enumerate(days) if i!=5}
+    assert session_return(rows,days,days[0],5) is None
+    assert session_return(rows,days,days[0],10) is None
+    assert session_return(rows,days,days[0],-1) is None
+    assert session_return(rows,days,days[0],6)==106/100-1
+
+def test_canonical_provider_priority_does_not_depend_on_response_order():
+    rows=[{'company_id':1,'price_date':'2026-08-01','close':1,'source':'fmp'},
+          {'company_id':1,'price_date':'2026-08-01','close':2,'source':'twelvedata'}]
+    assert canonical_prices(rows)==canonical_prices(rows[::-1])==[rows[1]]

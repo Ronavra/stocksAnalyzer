@@ -1,0 +1,19 @@
+# Research reliability
+
+Apply `services/api/sql/research_reliability.sql`, `services/api/sql/price_session_quality.sql` and `services/api/sql/company_disclosures.sql` before deploying this revision to a new database. They have been applied to the existing hosted project.
+
+Weekly publication uses one database transaction and a per-date advisory lock. A completed group, including a zero-pick decision, is immutable. `--force` no longer replaces completed decisions; use `--dry-run` to inspect a different selection. Incomplete legacy publications can be replaced only when unevaluated and on the same policy version. Evaluated legacy data requires explicit recovery.
+
+Prices are deduplicated by company/session with Twelve Data preferred over FMP. Labels use the SPY session calendar and require an exact stock close at the target session. Ingestion checks recent internal holes as well as the latest date; a repaired stock gets a historical feature rebuild. `price_session_quality(p_since)` and `repair_price_feature_labels(p_since)` process 100-day feature windows, including additional future bars to mature their labels. Iterate in 100-day steps for full-history checks. Missing provider bars remain missing, including historical suspensions; they are not extrapolated.
+
+`Research History Repair` performs the initial idempotent repair under the shared market-data concurrency group. It never regenerates completed recommendations. Its revision/status and bounded window results are stored in `pipeline_runs`.
+
+Daily scheduling is 08:00 Asia/Jerusalem. GitHub may start a scheduled workflow late. One workflow retries a failed market stage once, with a smaller provider request budget; success/active-run gating avoids another successful daily refresh on the same Israel date. A running attempt older than 195 minutes can be retried. Manual `force` is an explicit override. The dashboard marks an unfinished daily update overdue after noon and shows its last market close. `/health` is process liveness; `/ready` checks database connectivity.
+
+Financial versions are append-only observations with actual `observed_at`. Initial rows are marked `baseline_observed_now`; they do not retroactively certify old backtests. The latest financial parser still has incomplete field coverage, especially debt/cash-flow components and bank capital ratios. Missing values are not zeros. Eligibility continues to enforce financial freshness and weighted coverage, with the user's fixed 45/35/10/10 weights.
+
+Expected earnings dates/time are collected as report risk flags within 5/10/20 market sessions. They are snapshots of provider expectations, can change, and do not introduce an untested scoring penalty. EPS forecasts, analyst recommendation consensus, corporate guidance and news are separate data layers. Thin/stale consensus remains neutral. Unavailable guidance/news must not be described as complete data. Free SEC 8-K/6-K disclosures are saved from the already-requested submissions feed with their actual first-observed timestamp; they remain distinct from news articles, inferred sentiment and parsed guidance.
+
+The live scorecard measures equal-weight **weekly cohorts**, separated by frozen policy version and including cash weeks. Partial/maturing cohorts are not included. Net returns retain the original execution policy and costs. Overlapping horizons are not independent observations. The current policy has no validated predictive advantage until enough new forward outcomes exist. Experimental validation/promotion thresholds stay unchanged.
+
+The web app uses pinned Next.js/React dependencies and `npm ci` with a committed lockfile (Node 20.9+, CI Node 22). Data-loading failures have explicit messages; they are not rendered as an empty successful stock list. Visible dashboards refresh every five minutes or on demand.

@@ -37,12 +37,16 @@ class Db:
         self.existing = existing or []
         self.saved = []
 
-    def rpc(self, name):
+    def rpc(self, name, params=None):
+        if name == "publish_recommendation_cohort":
+            self.publication=params
+            self.saved.extend(params["p_predictions"])
+            return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": {"status":"published"}})()})()
         assert name == "research_dashboard_candidates"
         return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": self.rows})()})()
 
     def table(self, name):
-        assert name in ("research_predictions","pipeline_runs")
+        assert name in ("recommendation_cohorts",)
         return Query(self)
 
 
@@ -57,6 +61,7 @@ def candidate(cid, setup_date):
 
 def mock_finance(monkeypatch,eligible=True):
     monkeypatch.setattr(weekly,"load_inputs",lambda *_:{})
+    monkeypatch.setattr(weekly,"upcoming_earnings",lambda *_:{})
     def rank(rows,*args,**kwargs):
         picks=[{"row":row,"score":70.,"financial":{"score":80.,"coverage":1.,"period_end":"2026-06-30"},
                 "contributions":{"financial":36.,"technical":24.,"analyst":5.,"earnings":5.},"analyst":{"score":50.,"available":False,"status":"missing"},
@@ -110,6 +115,8 @@ def test_no_financially_eligible_stocks_does_not_pad_the_shortlist(monkeypatch):
     mock_finance(monkeypatch,eligible=False)
     assert weekly.generate(db,horizons=(5,))==[]
     assert db.saved==[]
+    assert db.publication["p_predictions"]==[]
+    assert db.publication["p_horizons"]==[5]
 
 
 def test_dry_run_never_changes_frozen_predictions(monkeypatch):
@@ -118,3 +125,18 @@ def test_dry_run_never_changes_frozen_predictions(monkeypatch):
     mock_finance(monkeypatch)
     assert len(weekly.generate(db,horizons=(5,),dry_run=True))==1
     assert db.saved==[]
+
+
+def test_force_cannot_rewrite_completed_cohort():
+    db=Db([candidate(1,"2026-09-29")],existing=[{"status":"published"}])
+    assert weekly.generate(db,force=True)==[]
+    assert db.saved==[]
+
+
+def test_all_horizons_are_published_in_one_rpc(monkeypatch):
+    db=Db([candidate(1,"2026-09-29")])
+    mock_finance(monkeypatch)
+    monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
+    weekly.generate(db)
+    assert len(db.publication["p_predictions"])==3
+    assert {r["horizon_days"] for r in db.publication["p_predictions"]}=={5,10,20}

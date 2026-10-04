@@ -12,6 +12,9 @@ from ..research.analyst_consensus import load_snapshots, consensus_score
 from datetime import datetime,timezone,timedelta
 from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
+from ..research.prospective_metrics import prospective_metrics, paged
+from ..market_calendar import latest_completed_session, NY
+from zoneinfo import ZoneInfo
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
@@ -57,9 +60,20 @@ def data_audit():
         if row["company_id"] in universe_ids:
             grouped.setdefault(row["company_id"],[]).append(row)
     count=sum(consensus_score(history,datetime.now(timezone.utc).date().isoformat())["available"] for history in grouped.values())
+    disclosed=paged(db.table("company_disclosures").select("id,company_id")
+                    .gte("published_at",(datetime.now(timezone.utc)-timedelta(days=90)).isoformat()).order("id"))
+    disclosure_companies=len({r["company_id"] for r in disclosed}&universe_ids)
+    layers.append({"key":"disclosures","label":"SEC disclosures · past 90 days","companies":disclosure_companies,"total":total,
+        "coverage_pct":round(100*disclosure_companies/total,1) if total else 0,"status":"observed"})
+    for table,label in (("corporate_guidance_events","Corporate guidance"),("news_events","News articles")):
+        ids=paged(db.table(table).select("id,company_id").order("id"))
+        n=len({r["company_id"] for r in ids}&universe_ids)
+        layers.append({"key":table,"label":label,"companies":n,"total":total,
+            "coverage_pct":round(100*n/total,1) if total else 0,"status":"partial" if n<total*.95 else "strong"})
     layers.append({"key":"analyst_consensus","label":"Current analyst recommendations","companies":count,"total":total,
                    "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
+    notes.append("Official SEC current reports are disclosures, not a complete news feed. Sentiment, bank capital ratios and company guidance are not inferred from their titles.")
     if d.get("estimates",0)<total*.95:
         notes.append("Analyst estimate coverage is limited; rankings do not assume missing estimates are zero.")
     reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
@@ -95,7 +109,9 @@ def company(ticker:str):
         sig=derive_fundamentals(usable[0],usable[1] if len(usable)>1 else None); fundamental_signals={**sig.__dict__,"period_end":usable[0].get("period_end"),"source":usable[0].get("source")}
     assessment=build_analyst_assessment(snapshots[0],latest_earnings,fundamental_signals).__dict__ if snapshots else None
     consensus=(db.table("analyst_consensus_snapshots").select("*").eq("company_id",c["id"]).order("observed_at",desc=True).order("period_date",desc=True).limit(40).execute().data or [])
-    return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,
+    disclosures=(db.table("company_disclosures").select("form,filing_date,published_at,observed_at,headline,source_url,items")
+                 .eq("company_id",c["id"]).order("published_at",desc=True).limit(10).execute().data or [])
+    return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,"disclosures":disclosures,
             "analyst_consensus":consensus_score(consensus,datetime.now(timezone.utc).date().isoformat())}
 
 @router.get("/framework")
@@ -107,9 +123,21 @@ def signals(limit:int=100):
     rows=complete_oldest_signal_cohort(db,rows)
     return load_price_timelines(db,rows)
 
+@router.get("/cohorts")
+def cohorts():
+    return paged(get_supabase().table("recommendation_cohorts").select("signal_date,model_version,horizons,expected_picks,status,published_at").order("signal_date",desc=True))
+
 @router.get("/scorecard")
 def scorecard():
-    db=get_supabase(); rows=(db.table("research_predictions").select("horizon_days,actual_return,benchmark_return,excess_return,correct_direction,evaluated_at,model_version").execute().data or []); rows=[x for x in rows if x.get("evaluated_at")]
+    db=get_supabase()
+    all_rows=paged(db.table("research_predictions").select("id,signal_date,horizon_days,actual_return,benchmark_return,excess_return,correct_direction,evaluated_at,model_version").order("id"))
+    cohort_rows=paged(db.table("recommendation_cohorts").select("*").order("signal_date"))
+    spy=db.table("companies").select("id").eq("ticker","SPY").limit(1).execute().data or []
+    market=paged(db.table("price_history").select("price_date,close,source").eq("company_id",spy[0]["id"])
+                 .gte("price_date",min((c["signal_date"] for c in cohort_rows),default=datetime.now(timezone.utc).date().isoformat()))
+                 .order("price_date").order("source")) if spy else []
+    live=prospective_metrics(cohort_rows,all_rows,market)
+    rows=[x for x in all_rows if x.get("evaluated_at")]
     import statistics
     def stats(xs):
         n=len(xs)
@@ -118,6 +146,7 @@ def scorecard():
         return {"evaluated":n,"win_rate":sum(bool(x.get("correct_direction")) for x in xs)/n,"avg_return":sum(rets)/len(rets) if rets else None,"median_return":statistics.median(rets) if rets else None,"avg_excess_return":sum(excess)/len(excess) if excess else None,"beat_spy_rate":sum(x>0 for x in excess)/len(excess) if excess else None}
     versions=sorted({x.get("model_version") or "unknown" for x in rows})
     return {
+        "prospective":live,
         "overall":stats(rows),
         "by_horizon":{str(h):stats([x for x in rows if x.get("horizon_days")==h]) for h in (5,10,20)},
         "by_model":{
@@ -143,6 +172,13 @@ def system_health():
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
     run=runs[0] if runs else None
+    now=datetime.now(timezone.utc)
+    israel_now=now.astimezone(ZoneInfo("Asia/Jerusalem"))
+    finished=(run or {}).get("finished_at")
+    last_day=datetime.fromisoformat(finished.replace("Z","+00:00")).astimezone(ZoneInfo("Asia/Jerusalem")).date() if finished else None
+    overdue=israel_now.hour>=12 and (last_day!=israel_now.date() or (run or {}).get("status")!="success")
+    expected=latest_completed_session(now.astimezone(NY)).isoformat()
+    fresh=bool(latest and feature and latest[0]["price_date"]==expected and feature[0]["feature_date"]==expected)
     source_run=source_runs[0] if source_runs else None
     model_run=model_runs[0] if model_runs else None
     if model_run:
@@ -155,7 +191,10 @@ def system_health():
         ranker_run["selection"]=report.get("selection")
         ranker_run["holdout"]=report.get("holdout")
     return {
-        "status":run.get("status") if run else "not_run",
+        "status":"overdue" if overdue else run.get("status") if run else "not_run",
+        "daily_schedule":{"timezone":"Asia/Jerusalem","time":"08:00","overdue":overdue,"exact_start_guaranteed":False},
+        "market_data_current":fresh,"expected_market_date":expected,
+        "price_session_quality":((run or {}).get("metadata") or {}).get("price_session_quality"),
         "last_run":run,
         "latest_price_date":latest[0]["price_date"] if latest else None,
         "latest_feature_date":feature[0]["feature_date"] if feature else None,

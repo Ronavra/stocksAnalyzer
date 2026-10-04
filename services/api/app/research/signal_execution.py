@@ -1,9 +1,13 @@
 """Evaluate new execution-aware signals while preserving the old ledger policy."""
 
 from app.research.weekly_rank_metrics import number
+from app.research.price_window import canonical_prices
 
 
 def execution_update(signal, prices, calendar=None):
+    prices = canonical_prices(prices)
+    if calendar is not None:
+        calendar = sorted(set(calendar))
     diagnostics = dict(signal.get("model_diagnostics") or {})
     horizon = signal["horizon_days"]
     delayed = diagnostics.get("entry_policy") == "next_session_close"

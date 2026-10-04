@@ -15,12 +15,14 @@ def parse_args():
  p.add_argument("--offset",type=int,default=0)
  p.add_argument("--bootstrap-years",type=int,default=6)
  p.add_argument("--tickers",nargs="*")
+ p.add_argument("--repair-since",type=date.fromisoformat,help="Also fetch internal missing sessions since this date")
  p.add_argument("--delay",type=float,default=8.5,help="Seconds between provider requests")
  p.add_argument("--all",action="store_true",help="Process the full S&P 500 universe plus benchmark")
  p.add_argument("--daily-credit-budget",type=int,default=550,help="Conservative cap below the Twelve Data Basic 800/day allowance, including retry attempts")
  return p.parse_args()
 
 args=parse_args()
+provider.request_budget=args.daily_credit_budget
 q=db.table("companies").select("id,ticker,is_sp500,scoring_profile").or_("is_sp500.eq.true,scoring_profile.eq.benchmark").order("ticker")
 companies=q.execute().data or []
 if args.tickers:
@@ -30,15 +32,20 @@ elif not args.all:
 
 print(f"Processing {len(companies)} companies" + (" (all mode)" if args.all else f" (offset={args.offset}, batch_size={args.batch_size})"))
 requests_made=0
+quality=db.rpc("price_session_quality",{"p_since":str(args.repair_since or end-timedelta(days=90))}).execute().data or {}
+gaps={g["company_id"]:g for g in quality.get("gaps",[])}
+repaired_tickers=[]
 for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
-  # Incremental refresh: fetch from the day after the latest stored bar.
-  # A Friday bar must not be treated as current on Monday.
+  gap=gaps.get(c["id"])
+  if gap:
+   start=min(start,date.fromisoformat(gap["first_missing"]))
+   print(c["ticker"],"repairing",gap["missing_sessions"],"missing market sessions")
   if latest:
    latest_date=date.fromisoformat(latest[0]["price_date"])
-   if latest_date>=end:
+   if latest_date>=end and not gap:
     print(c["ticker"],"price history already current through",latest_date); continue
   if start>end:
    print(c["ticker"],"price history already current"); continue
@@ -57,6 +64,7 @@ for idx,c in enumerate(companies):
   for i in range(0,len(payload),250):
    db.table("price_history").upsert(payload[i:i+250],on_conflict="company_id,price_date,source").execute()
   print(c["ticker"],"price rows saved=",len(payload))
+  if gap and payload: repaired_tickers.append(c["ticker"])
  except Exception as e:
   print(c["ticker"],"price history unavailable:",e)
   if "HTTP 429" in str(e):
@@ -68,3 +76,8 @@ if args.all:
 elif not args.tickers:
  next_offset=args.offset+len(companies)
  print(f"Batch complete. Next command: python scripts\\ingest_prices.py --offset {next_offset} --batch-size {args.batch_size}")
+
+if repaired_tickers:
+ import subprocess
+ subprocess.run([sys.executable,str(API_DIR/"scripts/build_daily_price_features.py"),"--full","--tickers",*repaired_tickers],check=True)
+ print("Historical features rebuilt for gap-repair companies:",repaired_tickers)

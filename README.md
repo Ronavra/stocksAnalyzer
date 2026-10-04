@@ -29,7 +29,7 @@ uvicorn app.main:app --reload --port 8000
 ### Web
 ```bash
 cd apps/web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -37,3 +37,5 @@ Copy `.env.example` to `.env.local` / your backend environment and add credentia
 
 ## Research philosophy
 The platform separates facts, market expectations, catalysts, risks, and scenario analysis. Scores are research signals, not personalized investment advice.
+
+See [reliability and history repair](docs/reliability.md) for publication guarantees, data quality checks, scheduling and remaining research limitations.

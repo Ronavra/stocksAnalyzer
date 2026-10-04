@@ -10,7 +10,7 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
-from app.research.earnings_catalysts import recent_earnings
+from app.research.earnings_catalysts import recent_earnings, upcoming_earnings
 from app.research.weekly_rank_metrics import ROUND_TRIP_COST
 from app.research.financial_ranking import load_inputs, rank_candidates, SIGNAL_VERSION
 import json
@@ -30,8 +30,8 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
     signal_date,rows=current_candidates(rows)
     if not rows:
         raise RuntimeError(f"No current setup snapshots for the latest price date {signal_date}")
-    if not force and not dry_run:
-        existing=(db.table("research_predictions").select("id,model_version")
+    if not dry_run:
+        existing=(db.table("recommendation_cohorts").select("signal_date,model_version,status")
                   .eq("signal_date",signal_date).limit(1).execute().data or [])
         if existing:
             print(f"Weekly cohort for {signal_date} already exists; preserving frozen selection.")
@@ -47,6 +47,8 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
     (API_DIR/"financial_selection.json").write_text(json.dumps(report,indent=2)+"\n")
     print("Financial weekly selection:",json.dumps(summary),flush=True)
     out=[]
+    records=[]
+    upcoming=upcoming_earnings(db,rows,signal_date)
     for rank,p in enumerate(picks,1):
         row=p["row"]
         diagnostics={
@@ -59,6 +61,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
                 **p["financial"],"technical_score":p["technical_score"],"earnings_score":p["earnings_score"],
                 "earnings_available":p["earnings_available"],"contributions":p["contributions"]},
             "analyst_consensus":p["analyst"],
+            "upcoming_earnings":upcoming.get(row["company_id"]),
             "selection_context":{"upside_to_60d_high":row.get("upside_to_60d_high"),"drawdown_60d":row.get("setup_drawdown_60d")},
         }
         for horizon in horizons:
@@ -69,13 +72,16 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
                  "model_version":SIGNAL_VERSION,"model_probability_up":None,"model_expected_return":None,
                  "model_calibration_brier":None,"model_baseline_brier":None,
                  "model_feature_coverage":p["financial"]["coverage"],"model_diagnostics":diagnostics}
-            if not dry_run:
-                db.table("research_predictions").upsert(rec,on_conflict="company_id,signal_date,horizon_days,model_version").execute()
+            records.append(rec)
         out.append((row.get("ticker"),p["score"],row.get("current_price"),"financial_priority"))
     if not dry_run:
-        db.table("pipeline_runs").insert({"pipeline":"weekly_financial_selection","status":"success",
-            "started_at":datetime.now(timezone.utc).isoformat(),"finished_at":datetime.now(timezone.utc).isoformat(),
-            "metadata":report}).execute()
+        result=db.rpc("publish_recommendation_cohort",{
+            "p_signal_date":signal_date,"p_model_version":SIGNAL_VERSION,
+            "p_horizons":list(horizons),"p_predictions":records,"p_metadata":report,
+        }).execute().data
+        if result and result.get("status")=="already_published":
+            print("Another run published this cohort; preserving its selection.")
+            return []
     return out
 
 
@@ -83,7 +89,7 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--top",type=int,default=5)
     ap.add_argument("--horizons",nargs="+",type=int,choices=[5,10,20],default=[5,10,20])
-    ap.add_argument("--force",action="store_true")
+    ap.add_argument("--force",action="store_true",help="Deprecated: completed cohorts always stay frozen; use --dry-run for a fresh preview")
     ap.add_argument("--dry-run",action="store_true",help="Calculate the new shortlist without writing predictions")
     a=ap.parse_args()
     picks=generate(get_supabase(),a.top,tuple(a.horizons),a.force,a.dry_run)

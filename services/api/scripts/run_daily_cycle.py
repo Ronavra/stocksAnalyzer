@@ -1,5 +1,5 @@
-import subprocess, sys, traceback, time
-from datetime import datetime, timezone
+import subprocess, sys, traceback, time, os
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -25,15 +25,18 @@ if __name__=="__main__":
     run_id=created[0]["id"] if created else None
     timings={}
     try:
-        timings["ingest_prices_seconds"]=run("ingest_prices.py","--all")
+        timings["ingest_prices_seconds"]=run("ingest_prices.py","--all","--daily-credit-budget",os.getenv("PRICE_CREDIT_BUDGET","550"))
         price_check=validate(db)
         if price_check["price_companies"] < 500:
             raise RuntimeError("Price ingestion incomplete for {}: {} companies; aborting before features/scan".format(price_check["expected_market_date"], price_check["price_companies"]))
         timings["features_seconds"]=run("build_daily_price_features.py")
+        quality=db.rpc("price_session_quality",{"p_since":(datetime.now(timezone.utc).date()-timedelta(days=90)).isoformat()}).execute().data or {}
+        if quality.get("incorrect_labels",0):
+            raise RuntimeError(f"Incorrect market-session labels: {quality['incorrect_labels']}")
         timings["scan_seconds"]=run("scan_setups.py")
         timings["evaluation_seconds"]=run("evaluate_signals.py")
         check=validate(db)
-        metadata={"timings":timings,"missing_prices":check["missing_prices"],"missing_features":check["missing_features"]}
+        metadata={"timings":timings,"missing_prices":check["missing_prices"],"missing_features":check["missing_features"],"price_session_quality":quality}
         update={"finished_at":datetime.now(timezone.utc).isoformat(),"status":"success" if check["ok"] else "error",
                 "expected_market_date":check["expected_market_date"],"latest_price_date":check["latest_price_date"],
                 "latest_feature_date":check["latest_feature_date"],"price_companies":check["price_companies"],

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 from .financial_quality import MAX_TTM_AGE_DAYS
+from .model_identity import HORIZONS, MODEL_VERSION
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -54,8 +55,6 @@ FEATURE_GROUPS={
 }
 DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance")
 FEATURES=[x for g in DEFAULT_GROUPS for x in FEATURE_GROUPS[g]]
-HORIZONS=(5,10,20)
-MODEL_VERSION="calibrated-multifactor-v4"
 _PREP_CACHE={}
 
 @dataclass

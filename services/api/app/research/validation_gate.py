@@ -1,4 +1,4 @@
-from app.research.calibrated_model import HORIZONS, MODEL_VERSION
+from app.research.model_identity import HORIZONS, MODEL_VERSION
 
 
 def validated_horizons(run):

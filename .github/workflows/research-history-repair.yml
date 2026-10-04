@@ -33,3 +33,10 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Repair historical sessions and labels, then refresh setups
         run: python scripts/repair_research_history.py
+      - name: Verify live API data and policy results
+        run: python scripts/verify_research_release.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: research-release-verification
+          path: services/api/research_release_verification.json
+          if-no-files-found: error

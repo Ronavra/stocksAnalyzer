@@ -52,7 +52,7 @@ def data_audit():
     def item(key,label):
         count=d.get(key,0); pct=round(100*count/total,1) if total else 0
         return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
-    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Analyst estimates"),item("earnings","Historical earnings events")]
+    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Standalone analyst forecast table"),item("earnings","Historical earnings events")]
     snapshots=load_snapshots(db,(datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
     universe_ids={r["id"] for r in db.table("companies").select("id").eq("is_sp500",True).execute().data or []}
     grouped={}
@@ -63,6 +63,14 @@ def data_audit():
     disclosed=paged(db.table("company_disclosures").select("id,company_id")
                     .gte("published_at",(datetime.now(timezone.utc)-timedelta(days=90)).isoformat()).order("id"))
     disclosure_companies=len({r["company_id"] for r in disclosed}&universe_ids)
+    today=datetime.now(timezone.utc).date()
+    future_eps=paged(db.table("earnings_events").select("id,company_id,estimated_eps")
+                    .gte("reported_date",today.isoformat()).lte("reported_date",(today+timedelta(days=120)).isoformat())
+                    .order("id"))
+    eps_companies=len({r["company_id"] for r in future_eps if r.get("estimated_eps") is not None}&universe_ids)
+    layers.append({"key":"upcoming_eps_consensus","label":"Upcoming earnings EPS consensus · 120 days",
+        "companies":eps_companies,"total":total,"coverage_pct":round(100*eps_companies/total,1) if total else 0,
+        "status":"strong" if eps_companies>=total*.95 else "partial"})
     layers.append({"key":"disclosures","label":"SEC disclosures · past 90 days","companies":disclosure_companies,"total":total,
         "coverage_pct":round(100*disclosure_companies/total,1) if total else 0,"status":"observed"})
     for table,label in (("corporate_guidance_events","Corporate guidance"),("news_events","News articles")):
@@ -75,7 +83,7 @@ def data_audit():
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
     notes.append("Official SEC current reports are disclosures, not a complete news feed. Sentiment, bank capital ratios and company guidance are not inferred from their titles.")
     if d.get("estimates",0)<total*.95:
-        notes.append("Analyst estimate coverage is limited; rankings do not assume missing estimates are zero.")
+        notes.append("The standalone analyst forecast table has limited coverage; upcoming EPS consensus is audited separately from earnings events. Neither is the analyst recommendation consensus used in the 10% selection weight.")
     reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
              .eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(3).execute().data or [])
     report=next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")),None)

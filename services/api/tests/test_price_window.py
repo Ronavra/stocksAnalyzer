@@ -45,3 +45,16 @@ def test_canonical_provider_priority_does_not_depend_on_response_order():
     rows=[{'company_id':1,'price_date':'2026-08-01','close':1,'source':'fmp'},
           {'company_id':1,'price_date':'2026-08-01','close':2,'source':'twelvedata'}]
     assert canonical_prices(rows)==canonical_prices(rows[::-1])==[rows[1]]
+
+def test_yahoo_order_and_page_boundary_do_not_override_primary():
+    rows=[{"price_date":"2026-08-11","close":1,"source":"yahoo_finance"},
+          {"price_date":"2026-08-11","close":2,"source":"twelvedata"},
+          {"price_date":"2026-08-10","close":3,"source":"yahoo_finance"},
+          {"price_date":"2026-08-10","close":4,"source":"twelvedata"},
+          {"price_date":"2026-08-07","close":5,"source":"twelvedata"}]
+    result=recent_distinct_prices(lambda offset,size:rows[offset:offset+size],limit=2,page_size=3)
+    assert [r["close"] for r in result]==[4,2]
+
+def test_nonfinite_prices_do_not_produce_labels():
+    days=["2026-08-07","2026-08-10"]
+    assert session_return({days[0]:{"close":100},days[1]:{"close":float("nan")}},days,days[0],1) is None

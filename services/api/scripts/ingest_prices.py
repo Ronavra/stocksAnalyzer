@@ -77,6 +77,12 @@ elif not args.tickers:
  next_offset=args.offset+len(companies)
  print(f"Batch complete. Next command: python scripts\\ingest_prices.py --offset {next_offset} --batch-size {args.batch_size}")
 
+# A successful range request can still omit an internal market session.
+from repair_price_gaps import repair_gaps
+repaired_tickers.extend(repair_gaps(db, [c["ticker"] for c in companies],
+    args.repair_since or end-timedelta(days=90), end))
+repaired_tickers=sorted(set(repaired_tickers))
+
 if repaired_tickers:
  import subprocess
  subprocess.run([sys.executable,str(API_DIR/"scripts/build_daily_price_features.py"),"--full","--tickers",*repaired_tickers],check=True)

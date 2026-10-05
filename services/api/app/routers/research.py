@@ -14,7 +14,7 @@ from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
 from ..research.prospective_metrics import prospective_metrics, paged
 from ..market_calendar import latest_completed_session, NY
-from zoneinfo import ZoneInfo
+from ..research.daily_schedule import schedule_status
 from ..research.market_freshness import market_freshness
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
@@ -182,10 +182,9 @@ def system_health():
     audit=db.rpc("research_data_audit").execute().data or {}
     run=runs[0] if runs else None
     now=datetime.now(timezone.utc)
-    israel_now=now.astimezone(ZoneInfo("Asia/Jerusalem"))
     finished=(run or {}).get("finished_at")
-    last_day=datetime.fromisoformat(finished.replace("Z","+00:00")).astimezone(ZoneInfo("Asia/Jerusalem")).date() if finished else None
-    overdue=israel_now.hour>=12 and (last_day!=israel_now.date() or (run or {}).get("status")!="success")
+    schedule=schedule_status(run,now)
+    overdue=schedule["overdue"]
     expected=latest_completed_session(now.astimezone(NY)).isoformat()
     freshness=market_freshness(db,expected)
     fresh=freshness["ok"]
@@ -212,7 +211,7 @@ def system_health():
         ranker_run["holdout"]=report.get("holdout")
     return {
         "status":"overdue" if overdue else run.get("status") if run else "not_run",
-        "daily_schedule":{"timezone":"Asia/Jerusalem","time":"08:00","overdue":overdue,"exact_start_guaranteed":False},
+        "daily_schedule":schedule,
         "market_data_current":fresh,"expected_market_date":expected,
         "market_freshness":freshness,
         "price_session_quality":quality,

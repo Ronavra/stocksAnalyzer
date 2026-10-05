@@ -13,7 +13,7 @@ sys.path.insert(0, str(API_DIR))
 load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
-from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, merge_company_facts
+from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, financial_reports, merge_company_facts
 from app.research.financial_quality import company_quality, summarize_quality
 from app.research.company_disclosures import current_reports
 
@@ -159,6 +159,38 @@ def build_ttm_rows(annual_rows, quarter_rows):
 
 
 
+async def recover_filing_history(provider, company, data, submissions, years, quarters, asof=None):
+    """Recover a bounded set of official filings when the latest TTM is stale.
+
+    A latest quarter alone may omit the preceding quarter needed by rolling
+    TTM. No older filing, entity or missing field is presumed equivalent.
+    """
+    report=latest_financial_report(submissions)
+    annual=facts_by_period(data,years)
+    quarterly=quarter_facts_by_period(data,quarters)
+    errors=[]; recovered=[]
+    if not report or not report.get("filed_date"):
+        return data,annual,quarterly,recovered,errors
+    for candidate in financial_reports(submissions)[:5]:
+        quality=company_quality(company,annual,quarterly,build_ttm_rows(annual,quarterly),report,asof)
+        if quality["status"] in ("current","ttm_period_old"):
+            break
+        # Use only filings within the rolling history required by the report.
+        if (not candidate.get("accession_number") or not candidate.get("filed_date")
+                or candidate["filed_date"]>report["filed_date"]
+                or not 0<=(d(report["period_end"])-d(candidate["period_end"])).days<=640):
+            continue
+        try:
+            extra=await provider.filing_facts(company["cik"],candidate)
+            data=merge_company_facts(data,extra)
+            annual=facts_by_period(data,years)
+            quarterly=quarter_facts_by_period(data,quarters)
+            recovered.append(candidate["accession_number"])
+        except Exception as exc:
+            errors.append({"accession_number":candidate["accession_number"],"error":str(exc)[:300]})
+    return data,annual,quarterly,recovered,errors
+
+
 async def main():
     p = argparse.ArgumentParser(description="Ingest annual fundamentals from official SEC Company Facts")
     p.add_argument("--tickers", nargs="*")
@@ -232,17 +264,11 @@ async def main():
             annual_rows = facts_by_period(result.value, a.years)
             quarter_rows = quarter_facts_by_period(result.value, a.quarters)
             source_data=result.value
-            fallback_error=None; fallback_used=False
+            fallback_errors=[]; recovered=[]
             parsed=max([r["period_end"] for r in annual_rows+quarter_rows],default="")
-            if latest_report and parsed<latest_report["period_end"]:
-                try:
-                    source_data=merge_company_facts(source_data,await provider.filing_facts(company["cik"],latest_report))
-                    annual_rows=facts_by_period(source_data,a.years)
-                    quarter_rows=quarter_facts_by_period(source_data,a.quarters)
-                    fallback_used=True
-                except Exception as exc:
-                    fallback_error=str(exc)[:500]
-                    print(company["ticker"],"SEC filing fallback unavailable:",fallback_error)
+            if latest_report:
+                source_data,annual_rows,quarter_rows,recovered,fallback_errors=await recover_filing_history(
+                    provider,company,source_data,submissions,a.years,a.quarters)
             shares_map = shares_outstanding_by_period(source_data)
 
             def attach_shares(rows):
@@ -271,10 +297,12 @@ async def main():
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)
-            item["filing_fallback_used"]=fallback_used
+            item["filing_fallback_used"]=bool(recovered)
+            item["recovered_filing_accessions"]=recovered
             item["companyfacts_latest_period"]=parsed or None
-            if fallback_error:
-                item["filing_fallback_error"]=fallback_error
+            if fallback_errors:
+                item["filing_fallback_errors"]=fallback_errors
+                item["filing_fallback_error"]=str(fallback_errors)[:500]
             if disclosure_error:
                 item["disclosure_error"]=disclosure_error
             if submission_error:

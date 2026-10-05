@@ -87,3 +87,6 @@ jobs:
         if: ${{ steps.daily_gate.outputs.run == 'true' }}
         continue-on-error: true
         run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
+      - name: Report delayed daily starts and completions
+        if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}
+        run: python scripts/report_daily_schedule.py

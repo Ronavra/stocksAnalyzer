@@ -46,6 +46,8 @@ jobs:
           fi
       - name: Refresh SEC fundamentals and valuation
         run: python scripts/refresh_research_sources.py --sec-only
+      - name: Verify real recommendation and policy payloads
+        run: python scripts/verify_research_release.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -50,6 +50,29 @@ def test_missing_debt_component_and_cash_are_not_zero():
     assert derive({"free_cash_flow":10,"total_debt":100,"cash":0},None).net_debt_to_fcf==10
 
 
+def test_legacy_capital_lease_debt_tags_are_noncurrent_plus_current():
+    for start,end,form in (("2026-04-01","2026-06-30","10-Q"),("2025-01-01","2025-12-31","10-K")):
+        income=fact(start,end,100,form=form)
+        facts={tag:{"units":{"USD":[income]}} for tag in ("Revenues","NetIncomeLoss")}
+        for tag,value in (("LongTermDebtAndCapitalLeaseObligations",60),("LongTermDebtAndCapitalLeaseObligationsCurrent",8)):
+            facts[tag]={"units":{"USD":[{"end":end,"val":value,"form":form,"filed":"2026-08-01"}]}}
+        rows=(quarter_facts_by_period if form=="10-Q" else facts_by_period)({"facts":{"us-gaap":facts}})
+        assert rows[0]["total_debt"]==68
+        assert not any(key.startswith("debt_") for key in rows[0])
+
+
+def test_current_debt_aggregate_is_not_double_counted_with_current_maturities():
+    income=fact("2026-04-01","2026-06-30",100)
+    facts={tag:{"units":{"USD":[income]}} for tag in ("Revenues","NetIncomeLoss")}
+    for tag,value in (("DebtCurrent",15),("LongTermDebtCurrent",8),("LongTermDebtNoncurrent",60),("LongTermDebt",68)):
+        facts[tag]={"units":{"USD":[{"end":"2026-06-30","val":value,"form":"10-Q","filed":"2026-08-01"}]}}
+    data={"facts":{"us-gaap":facts}}
+    assert quarter_facts_by_period(data)[0]["total_debt"]==75
+    del facts["LongTermDebtNoncurrent"]
+    del facts["LongTermDebt"]
+    assert quarter_facts_by_period(data)[0]["total_debt"] is None
+
+
 def test_shares_fallback_is_not_hidden_by_old_dei_facts():
     old={"end":"2021-12-31","val":10,"filed":"2022-02-01","form":"10-K"}
     new={"end":"2026-06-30","val":20,"filed":"2026-08-01","form":"10-Q"}

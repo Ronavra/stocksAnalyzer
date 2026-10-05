@@ -60,7 +60,7 @@ class SECProvider:
             return instance_company_facts(result.content,cik,report)
 
 
-def latest_financial_report(submissions:dict):
+def financial_reports(submissions:dict):
     """A successful facts download is checked against the actual filings list."""
     recent=((submissions.get("filings") or {}).get("recent") or {})
     result=[]
@@ -76,7 +76,12 @@ def latest_financial_report(submissions:dict):
             if value("accessionNumber"):
                 item["accession_number"]=value("accessionNumber")
             result.append(item)
-    return max(result,key=lambda r:(r["period_end"],r["filed_date"] or "")) if result else None
+    return sorted(result,key=lambda r:(r["period_end"],r["filed_date"] or ""),reverse=True)
+
+
+def latest_financial_report(submissions:dict):
+    reports=financial_reports(submissions)
+    return reports[0] if reports else None
 
 
 def instance_company_facts(xml,cik,report):
@@ -147,6 +152,20 @@ def _fact_priority(filed,alias_index,tag,key):
     bank_total=key=="revenue" and tag=="RevenuesNetOfInterestExpense"
     return (bank_total,filed or "",-alias_index)
 
+
+def reported_debt(rec):
+    # DebtCurrent already includes current maturities and short-term debt.
+    # Never add a current-maturity subtotal to it a second time.
+    current=rec.get("debt_all_current")
+    noncurrent=rec.get("debt_noncurrent")
+    if current is not None and noncurrent is not None:
+        return float(current)+float(noncurrent)
+    if rec.get("debt_total") is not None:
+        return rec["debt_total"]
+    if rec.get("debt_current") is not None and noncurrent is not None:
+        return float(rec["debt_current"])+float(noncurrent)
+    return None
+
 def facts_by_period(data: dict, years: int = 10):
     facts = (data.get("facts") or {}).get("us-gaap") or {}
     aliases = {
@@ -173,10 +192,13 @@ def facts_by_period(data: dict, years: int = 10):
         ],
         "debt_current": [
             "LongTermDebtAndFinanceLeaseObligationsCurrent",
+            "LongTermDebtAndCapitalLeaseObligationsCurrent",
             "LongTermDebtCurrent",
         ],
+        "debt_all_current": ["DebtCurrent"],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
+            "LongTermDebtAndCapitalLeaseObligations",
             "LongTermDebtNoncurrent",
         ],
         "debt_total": ["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
@@ -222,14 +244,11 @@ def facts_by_period(data: dict, years: int = 10):
                     rec["accn"] = x["accn"]
 
     for rec in out.values():
-        if rec.get("debt_total") is not None:
-            rec["total_debt"] = rec["debt_total"]
-        elif rec.get("debt_current") is not None and rec.get("debt_noncurrent") is not None:
-            rec["total_debt"] = float(rec["debt_current"]) + float(rec["debt_noncurrent"])
+        rec["total_debt"] = reported_debt(rec)
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):
-            if k.startswith("_filed_") or k in ("debt_current", "debt_noncurrent", "debt_total"):
+            if k.startswith(("_filed_", "debt_")):
                 rec.pop(k, None)
 
     # Keep only real fiscal-year records with enough core data to be useful.
@@ -272,10 +291,13 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
         ],
         "debt_current": [
             "LongTermDebtAndFinanceLeaseObligationsCurrent",
+            "LongTermDebtAndCapitalLeaseObligationsCurrent",
             "LongTermDebtCurrent",
         ],
+        "debt_all_current": ["DebtCurrent"],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
+            "LongTermDebtAndCapitalLeaseObligations",
             "LongTermDebtNoncurrent",
         ],
         "debt_total": ["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
@@ -362,14 +384,11 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
                         rec["accn"]=current["accn"]
 
     for rec in out.values():
-        if rec.get("debt_total") is not None:
-            rec["total_debt"] = rec["debt_total"]
-        elif rec.get("debt_current") is not None and rec.get("debt_noncurrent") is not None:
-            rec["total_debt"] = float(rec["debt_current"]) + float(rec["debt_noncurrent"])
+        rec["total_debt"] = reported_debt(rec)
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):
-            if k.startswith("_filed_") or k in ("debt_current", "debt_noncurrent", "debt_total"):
+            if k.startswith(("_filed_", "debt_")):
                 rec.pop(k, None)
 
     quarterly = [

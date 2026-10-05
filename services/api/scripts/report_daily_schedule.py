@@ -1,5 +1,6 @@
 """Retain scheduling delays in Actions without failing a valid market update."""
 import json
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -12,7 +13,10 @@ from app.db.client import get_supabase
 from app.research.daily_schedule import schedule_status
 
 
-def main():
+def main(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check-deadline",action="store_true",help="Fail the monitoring job when today's update has not succeeded by noon")
+    args=parser.parse_args(argv)
     db=get_supabase()
     rows=(db.table("pipeline_runs").select("status,started_at,finished_at")
           .eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
@@ -30,6 +34,8 @@ def main():
     if summary:
         with open(summary,"a",encoding="utf-8") as file:
             file.write("\nDaily schedule: "+message+"\n")
+    if args.check_deadline and status["overdue"]:
+        raise SystemExit(1)
 
 
 if __name__=="__main__":

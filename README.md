@@ -18,6 +18,8 @@ AI-assisted S&P 500 research platform.
 ## Run locally
 
 ### API
+
+macOS / Linux:
 ```bash
 cd services/api
 python -m venv .venv
@@ -25,6 +27,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
+
+Windows PowerShell (run from the repository root):
+```powershell
+cd services/api
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
+After pulling backend updates, reinstall `requirements.txt` with the same virtual-environment Python before restarting the API. The explicit `tzdata` dependency supplies IANA time zones on Windows, which does not provide a system IANA database.
 
 ### Web
 ```bash

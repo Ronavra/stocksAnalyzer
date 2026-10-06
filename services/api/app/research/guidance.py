@@ -51,8 +51,8 @@ def extract_guidance(html,company_id,event):
         # Require a labelled numeric interval, rather than inferring a value
         # from a financial table whose year / GAAP columns may be ambiguous.
         patterns={
-            "eps":rf"(?P<method>adjusted|GAAP|diluted)?\s*(?:diluted\s+)?(?:EPS|earnings per (?:diluted )?share)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range (?:of )?)?|range)\s+|is\s+)?{number}\s*(?:to|and|[-–])\s*{number}",
-            "revenue":rf"(?:revenue|sales)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range (?:of )?)?|range)\s+|is\s+)?{number}\s*(million|billion)?\s*(?:to|and|[-–])\s*{number}\s*(million|billion)",
+            "eps":rf"(?P<method>adjusted|GAAP|diluted)?\s*(?:diluted\s+)?(?:EPS|earnings per (?:diluted )?share)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range(?: of)?)?|range)\s+|is\s+)?{number}\s*(?:to|and|[-–])\s*{number}",
+            "revenue":rf"(?:revenue|sales)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range(?: of)?)?|range)\s+|is\s+)?{number}\s*(million|billion)?\s*(?:to|and|[-–])\s*{number}\s*(million|billion)",
         }
         for metric,pattern in patterns.items():
             match=re.search(pattern,line,re.I)

@@ -22,6 +22,10 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
+      - name: Verify time zones without a system database
+        env:
+          PYTHONTZPATH: ""
+        run: python -c "from zoneinfo import ZoneInfo; import app.market_calendar; assert ZoneInfo('America/New_York').key == 'America/New_York'; assert ZoneInfo('Asia/Jerusalem').key == 'Asia/Jerusalem'"
       - name: Compile research pipeline
         run: python -m compileall -q app scripts
       - name: Test research model and validation gate

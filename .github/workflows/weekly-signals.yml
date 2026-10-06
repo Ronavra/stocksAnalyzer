@@ -3,9 +3,11 @@ name: Weekly Signal Freeze
 on:
   workflow_dispatch:
   schedule:
-    # Saturday's 08:17 Israel daily refresh collects Friday's US close.
-    # Allow its 180-minute timeout plus a buffer; the job also checks DB freshness.
-    - cron: "17 12 * * 6"
+    # Sunday morning selection for the coming week; noon retries a delayed refresh.
+    # A database week lock makes both attempts idempotent.
+    - cron: "17 8 * * 0"
+      timezone: "Asia/Jerusalem"
+    - cron: "17 12 * * 0"
       timezone: "Asia/Jerusalem"
 
 concurrency:
@@ -50,7 +52,7 @@ jobs:
       - name: Refresh free analyst consensus before selection
         continue-on-error: true
         run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
-      - name: Freeze up to 5 research candidates at 5d 10d and 20d horizons
+      - name: Freeze Sunday's shortlist for the coming week
         run: python scripts/run_weekly_cycle.py
       - uses: actions/upload-artifact@v4
         if: always()

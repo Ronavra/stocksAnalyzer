@@ -8,14 +8,15 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
-from scripts.validate_daily_cycle import validate
+from scripts.validate_daily_cycle import validate, latest_expected_market_date
+from app.research.recommendation_cadence import publication_due
 
 PY=sys.executable
 
 def check_readiness(db):
     health=validate(db)
     if not health["ok"]:
-        raise RuntimeError(health["error_message"] or "Friday price/features coverage is incomplete")
+        raise RuntimeError(health["error_message"] or "Market price/features coverage is incomplete")
 
     expected=health["expected_market_date"]
     runs=(db.table("pipeline_runs").select("status,expected_market_date,latest_price_date,latest_feature_date")
@@ -38,9 +39,16 @@ def run(name,*args):
     print(f"\n=== {name} ===")
     subprocess.run([PY,str(HERE/name),*args],check=True)
 
-if __name__=="__main__":
-    # Never publish a cohort from Thursday data when Friday's close is expected.
-    check_readiness(get_supabase())
+def main():
+    db=get_supabase()
+    # Require the latest validated close and one publication per Israel Sunday.
+    signal_date=latest_expected_market_date().isoformat()
+    if not publication_due(db,signal_date):
+        return
+    check_readiness(db)
     run("evaluate_signals.py")
     run("generate_weekly_signals.py","--top","5","--horizons","5","10","20")
     print("\nWeekly prediction cycle complete.")
+
+if __name__=="__main__":
+    main()

@@ -74,17 +74,19 @@ export default function WeeklySignals({signals, scorecard, cohortRecords=[]}: {s
       const horizons = rows.filter(row => row.companies?.ticker === ticker).sort((a, b) => a.horizon_days - b.horizon_days);
       return {ticker, horizons, main: horizons[0]};
     }).sort((a, b) => (a.main.rank ?? 99) - (b.main.rank ?? 99));
-    return {date, stocks,record:cohortRecords.find(row=>row.signal_date===date)};
+    const record=cohortRecords.find(row=>row.signal_date===date);
+    const publishedDate=record?.published_at?new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Jerusalem",day:"2-digit",month:"2-digit",year:"numeric"}).format(new Date(record.published_at)):null;
+    return {date, stocks,record,publishedDate};
   });
 
   return <section className="panel" aria-label="Weekly research shortlist">
     <div className="panelHead"><div><p className="eyebrow">WEEKLY PRICE TRACKER</p><h2>Recommended stocks</h2></div><p className="muted">Latest recommendations below. Open an earlier group to see its prices.</p></div>
-    <p className="timelineNote">Closing prices in USD. Windows count 5, 10 and 20 trading days after the recommendation date.</p>
+    <p className="timelineNote">A new group of up to five qualifying stocks is published each Sunday, Israel time, for the coming week using the latest validated market close. Market holidays do not postpone the weekly group. Closing prices in USD. Windows count 5, 10 and 20 trading days after the recommendation date.</p>
     {cohorts.length ? cohorts.map((cohort, index) => {
       const previousTickers = new Set(cohorts[index + 1]?.stocks.map(stock => stock.ticker) ?? []);
       const Cohort = index === 0 ? "section" : "details";
       return <Cohort className={index === 0 ? "latestCohort" : "cohortAccordion"} key={cohort.date}>
-        {index === 0 ? <div className="latestCohortHead"><span className="cohortLabel"><b>Latest recommendations · {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span></div> : <summary><span className="cohortLabel"><b>Week of {cohort.date}</b><small>{cohort.stocks.length} stocks</small></span><span className="accordionChevron" aria-hidden="true">⌄</span></summary>}
+        {index === 0 ? <div className="latestCohortHead"><span className="cohortLabel"><b>Latest recommendations{cohort.publishedDate&&` · published ${cohort.publishedDate}`}</b><small>{cohort.stocks.length} stocks · Market close {cohort.date}</small></span></div> : <summary><span className="cohortLabel"><b>Recommendations{cohort.publishedDate&&` · published ${cohort.publishedDate}`}</b><small>{cohort.stocks.length} stocks · Market close {cohort.date}</small></span><span className="accordionChevron" aria-hidden="true">⌄</span></summary>}
         <div className="cohortBody">
           {cohort.record?.status==="no_picks"&&<p className="muted">No stocks met the selection requirements this week. The recorded decision is to stay in cash.</p>}
           <div className="tableScroll" role="region" aria-label={`Prices for recommendations dated ${cohort.date}`} tabIndex={0}>

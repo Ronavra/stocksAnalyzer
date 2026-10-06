@@ -1,4 +1,5 @@
 import pytest
+from datetime import date
 
 from scripts import run_weekly_cycle
 
@@ -59,3 +60,35 @@ def test_weekly_freeze_needs_matching_setups_and_full_coverage(monkeypatch):
         run_weekly_cycle.check_readiness(Db(successful_run(),[{"price_date":"2026-10-02","as_of_date":"2026-10-01"}]))
 
     assert run_weekly_cycle.check_readiness(Db(successful_run(),[{"price_date":"2026-10-02","as_of_date":"2026-10-02"}]))=="2026-10-02"
+
+
+def test_weekly_cycle_skips_readiness_and_evaluation_when_not_due(monkeypatch):
+    monkeypatch.setattr(run_weekly_cycle,"get_supabase",lambda:object())
+    monkeypatch.setattr(run_weekly_cycle,"latest_expected_market_date",lambda:date(2026,10,9))
+    monkeypatch.setattr(run_weekly_cycle,"publication_due",lambda *args:False)
+    monkeypatch.setattr(run_weekly_cycle,"check_readiness",lambda *args:pytest.fail("Not due: must skip readiness"))
+    monkeypatch.setattr(run_weekly_cycle,"run",lambda *args:pytest.fail("Not due: must skip publication"))
+    run_weekly_cycle.main()
+
+
+def test_due_sunday_requires_readiness_before_publication(monkeypatch):
+    monkeypatch.setattr(run_weekly_cycle,"get_supabase",lambda:object())
+    monkeypatch.setattr(run_weekly_cycle,"latest_expected_market_date",lambda:date(2026,10,9))
+    monkeypatch.setattr(run_weekly_cycle,"publication_due",lambda *args:True)
+    def unready(db):
+        raise RuntimeError("Friday refresh incomplete")
+    monkeypatch.setattr(run_weekly_cycle,"check_readiness",unready)
+    monkeypatch.setattr(run_weekly_cycle,"run",lambda *args:pytest.fail("Unready: must not publish"))
+    with pytest.raises(RuntimeError,match="refresh incomplete"):
+        run_weekly_cycle.main()
+
+
+def test_ready_sunday_requests_five_stocks_once_with_all_horizons(monkeypatch):
+    monkeypatch.setattr(run_weekly_cycle,"get_supabase",lambda:object())
+    monkeypatch.setattr(run_weekly_cycle,"latest_expected_market_date",lambda:date(2026,10,9))
+    monkeypatch.setattr(run_weekly_cycle,"publication_due",lambda *args:True)
+    monkeypatch.setattr(run_weekly_cycle,"check_readiness",lambda db:"2026-10-09")
+    calls=[]
+    monkeypatch.setattr(run_weekly_cycle,"run",lambda *args:calls.append(args))
+    run_weekly_cycle.main()
+    assert calls==[("evaluate_signals.py",),("generate_weekly_signals.py","--top","5","--horizons","5","10","20")]

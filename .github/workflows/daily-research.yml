@@ -91,6 +91,9 @@ jobs:
         if: ${{ steps.daily_gate.outputs.run == 'true' }}
         continue-on-error: true
         run: python scripts/refresh_enrichment.py
+      - name: Publish the weekly shortlist when Sunday publication is due
+        if: ${{ success() }}
+        run: python scripts/run_weekly_cycle.py
       - name: Report delayed daily starts and completions
         if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}
         run: python scripts/report_daily_schedule.py

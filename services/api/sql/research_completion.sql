@@ -160,3 +160,7 @@ end $$;
 -- per company, rather than forbidding attribution of the same URL elsewhere.
 alter table public.news_events drop constraint if exists news_events_source_url_key;
 create index if not exists news_events_company_url_idx on public.news_events(company_id,source_url);
+
+-- A parser upgrade may inspect a previously unparsed release again without
+-- changing first-observed times of already extracted guidance.
+alter table public.company_disclosures add column if not exists enrichment_parser text;

@@ -11,7 +11,7 @@ def test_explicit_annual_eps_and_revenue_ranges_have_method_units_and_evidence()
     revenue=next(r for r in rows if r.get('revenue_guidance_low') is not None)
     assert eps['eps_guidance_low']==6.5 and eps['eps_method']=='adjusted'
     assert revenue['revenue_guidance_low']==14.2e9 and revenue['revenue_guidance_high']==14.7e9
-    assert eps['captured_at']==EVENT['observed_at'] and eps['evidence']['parser']=='explicit_annual_range_v1'
+    assert eps['captured_at']==EVENT['observed_at'] and eps['evidence']['parser']=='explicit_annual_range_v2'
 
 
 def test_quarter_actuals_withdrawn_and_ambiguous_table_values_stay_unknown():
@@ -30,3 +30,19 @@ def test_explicit_fiscal_year_range_in_narrative_is_supported():
     rows=extract_guidance(html,1,EVENT)
     assert len(rows)==2
     assert {r['fiscal_year'] for r in rows}=={2027}
+
+
+def test_annual_revision_distinguishes_old_range_from_new_range():
+    html='<p>Our fiscal 2027 guidance increases annual revenue expectations from a range of $10 billion to $11 billion to a range of $12 billion to $13 billion, and adjusted diluted EPS expectations from a range of $4 to $5 to a range of $6 to $7.</p>'
+    rows=extract_guidance(html,1,EVENT)
+    revenue=next(r for r in rows if r.get('revenue_guidance_low') is not None)
+    eps=next(r for r in rows if r.get('eps_guidance_low') is not None)
+    assert revenue['previous_revenue_guidance_low']==10e9 and revenue['revenue_guidance_low']==12e9
+    assert eps['previous_eps_guidance_high']==5 and eps['eps_guidance_high']==7
+    assert set(eps)==set(revenue)  # Common column set for one REST bulk insert.
+    assert revenue['eps_guidance_low'] is None and eps['revenue_guidance_low'] is None
+    assert eps['eps_method']=='adjusted' and eps['captured_at']==EVENT['observed_at']
+
+
+def test_fiscal_year_label_does_not_turn_quarter_guidance_into_annual_guidance():
+    assert extract_guidance('<p>Fiscal 2027 first quarter outlook: EPS of $1 to $2.</p>',1,EVENT)==[]

@@ -11,6 +11,7 @@ export type Candidate = {
  research_rank_score:number|null; catalyst_adjustment:number|null; earnings_catalyst:{reported_date:string;surprise_percent:number|null;revenue_surprise_percent:number|null;source:string}|null;
  financial_ranking?:{score:number;coverage:number;period_end:string}|null; financial_ranking_status?:string; ranking_weights?:Record<string,number>;
  analyst_consensus?:AnalystConsensus|null;
+ upcoming_earnings?:{reported_date:string;within_execution_horizons?:number[]}|null;earnings_risk_excluded?:boolean;
 };
 const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 

@@ -12,6 +12,8 @@ load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
 from app.providers.massive import MassiveProvider
+from hashlib import sha256
+import json
 
 def num(v):
     try:
@@ -35,7 +37,7 @@ def payload_for(company_id,x,captured_at):
     event_date=x.get("date")
     if not event_date:
         return None
-    return {
+    payload={
         "company_id":company_id,
         "event_date":event_date,
         "event_time":x.get("time"),
@@ -59,6 +61,11 @@ def payload_for(company_id,x,captured_at):
         "source_record_id":x.get("benzinga_id"),
         "captured_at":captured_at,
     }
+    # Preserve source revisions as separate observations. First capture must
+    # never be overwritten by a later download of the same vendor event ID.
+    fingerprint=sha256(json.dumps({k:v for k,v in payload.items() if k!="captured_at"},sort_keys=True,default=str).encode()).hexdigest()[:24]
+    payload["source_record_id"]=str(x.get("benzinga_id") or "event")+":"+fingerprint
+    return payload
 
 async def main():
     ap=argparse.ArgumentParser()
@@ -94,7 +101,7 @@ async def main():
         for i in range(0,len(payload),250):
             db.table("corporate_guidance_events").upsert(
                 payload[i:i+250],
-                on_conflict="company_id,event_date,fiscal_year,fiscal_period,source,source_record_id"
+                on_conflict="company_id,event_date,fiscal_year,fiscal_period,source,source_record_id",ignore_duplicates=True
             ).execute()
         print(f"Massive incremental guidance since={since} provider_rows={len(rows)} saved={len(payload)} ignored_non_sp500={ignored} api_calls=1")
         return
@@ -114,7 +121,7 @@ async def main():
             if payload:
                 db.table("corporate_guidance_events").upsert(
                     payload,
-                    on_conflict="company_id,event_date,fiscal_year,fiscal_period,source,source_record_id"
+                    on_conflict="company_id,event_date,fiscal_year,fiscal_period,source,source_record_id",ignore_duplicates=True
                 ).execute()
             print(c["ticker"],"guidance",len(payload))
         except Exception as e:

@@ -23,13 +23,21 @@ FEATURES = BASE_PRICE_FEATURES + CONTEXT_FEATURES
 VARIANTS = ("expected_excess", "downside_aware")
 
 
-def prepare(db, years=5):
+def prepare(db, years=5, point_in_time=False):
     rows, latest = load_price_rows(db, years)
     companies = {r["id"]: r for r in db.table("companies").select("id,ticker,sector,is_sp500").execute().data or []}
     spy_id = next((cid for cid, c in companies.items() if c["ticker"] == "SPY"), None)
     if spy_id is None:
         raise RuntimeError("Weekly ranker requires SPY prices")
-    rows = [r for r in rows if r["company_id"] == spy_id or companies.get(r["company_id"], {}).get("is_sp500")]
+    if point_in_time:
+        from .observations import member_asof
+        from .financial_ranking import paged
+        memberships=paged(lambda a,b:db.table("index_memberships").select("company_id,effective_from,effective_to,captured_at")
+                          .eq("index_code","SP500").order("id").range(a,b))
+        known_ids={r["company_id"] for r in memberships}|{spy_id}
+        rows=[r for r in rows if r["company_id"] in known_ids]
+    else:
+        rows = [r for r in rows if r["company_id"] == spy_id or companies.get(r["company_id"], {}).get("is_sp500")]
     spy_rows = sorted([r for r in rows if r["company_id"] == spy_id], key=lambda r: r["feature_date"])
     calendar = [r["feature_date"] for r in spy_rows]
     if not latest or not calendar or calendar[-1] != latest:
@@ -38,7 +46,11 @@ def prepare(db, years=5):
     anchors = last_trading_day_of_weeks(spy_rows, cutoff)
     # Latest prediction is allowed on a non-Friday manual research run as well.
     dates = set(anchors) | {latest}
-    context, by_company = _derived_price_context(rows, companies, dates)
+    if point_in_time:
+        context,by_company=_derived_price_context(rows,companies,dates,
+            eligible=lambda cid,day:cid==spy_id or member_asof(memberships,cid,day))
+    else:
+        context, by_company = _derived_price_context(rows, companies, dates)
     price_maps = {cid: {r["feature_date"]: r.get("close") for r in items} for cid, items in by_company.items()}
     records = []
     for cid, items in by_company.items():
@@ -46,6 +58,8 @@ def prepare(db, years=5):
             continue
         for i, row in enumerate(items):
             anchor = row["feature_date"]
+            if point_in_time and not member_asof(memberships,cid,anchor):
+                continue
             if anchor not in dates or number(row.get("close")) is None or number(row.get("close")) <= 0:
                 continue
             fd = {k: number(row.get(k)) for k in BASE_PRICE_FEATURES}

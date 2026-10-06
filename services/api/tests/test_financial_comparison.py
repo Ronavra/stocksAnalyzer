@@ -38,3 +38,12 @@ def test_empty_replay_reports_no_evidence():
     assert result["holdout_start"] is None
     assert result["weights"]=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}
     assert result["validated_forecast"] is False
+
+
+def test_pre_archive_dates_are_excluded_instead_of_being_called_cash_weeks(monkeypatch):
+    def forbidden(*args,**kwargs):
+        raise AssertionError('Pre-archive selection must not run')
+    monkeypatch.setattr(replay,'rank_candidates',forbidden)
+    result=replay.compare(prepared([record(1)]),{'point_in_time':True,'first_observed_at':'2026-10-04T18:00:00Z','memberships':[]})
+    assert result['all']=={'cohorts':0}
+    assert result['excluded']=={'financial_history_not_observed':1}

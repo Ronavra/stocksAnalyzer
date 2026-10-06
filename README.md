@@ -47,6 +47,16 @@ npm run dev
 
 Copy `.env.example` to `.env.local` / your backend environment and add credentials only when integrations are enabled.
 
+## Independent daily refresh on Windows
+
+After updating the API requirements, run this once from `services/api` on your Windows host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_windows_schedule.ps1
+```
+
+The task uses your existing API environment and runs at 08:00 Israel time. Windows must use **Israel Standard Time**, and the host must be on with your user signed in. Supabase independently records whether the daily market refresh finished by noon.
+
 ## Research philosophy
 The platform separates facts, market expectations, catalysts, risks, and scenario analysis. Scores are research signals, not personalized investment advice.
 

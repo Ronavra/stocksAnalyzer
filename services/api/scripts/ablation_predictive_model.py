@@ -12,6 +12,7 @@ load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
 from app.research.calibrated_model import MODEL_VERSION, fit_models
+from app.research.model_forecasts import publish_forecasts
 
 STAGES=[
     ("price",("price",)),
@@ -19,7 +20,8 @@ STAGES=[
     ("price_context_earnings",("price","context","earnings")),
     ("price_context_earnings_fundamentals",("price","context","earnings","fundamentals")),
     ("price_context_earnings_fundamentals_valuation",("price","context","earnings","fundamentals","valuation")),
-    ("full",("price","context","earnings","fundamentals","valuation","guidance")),
+    ("with_guidance",("price","context","earnings","fundamentals","valuation","guidance")),
+    ("full",("price","context","earnings","fundamentals","valuation","guidance","news")),
 ]
 
 def stage_score(horizons):
@@ -43,8 +45,11 @@ def main():
     results={}
     try:
         best_stage=None; best_groups=None; best_score=None
+        best_models={}; price_models={}
         for name,groups in STAGES:
             models,meta=fit_models(db,groups=groups)
+            if name=="price":
+                price_models=models
             results[name]={"groups":list(groups),"meta":meta,"horizons":{}}
             for h,m in sorted(models.items()):
                 d=m.diagnostics
@@ -71,8 +76,13 @@ def main():
             results[name]["valid_horizons"]=n_valid
             # Choose the feature family using the middle period only. The
             # latest holdout is reserved for the independent promotion gate.
-            if n_valid>=2 and score is not None and (best_score is None or score<best_score-1e-5):
+            family_ready=all(meta.get("observed_family_dates",{}).get(group,0)>=26
+                             and meta.get("observed_training_family_dates",{}).get(group,0)>=26
+                             for group in groups if group in ("fundamentals","valuation","earnings","guidance","news"))
+            results[name]["observed_family_ready"]=family_ready
+            if family_ready and n_valid>=2 and score is not None and (best_score is None or score<best_score-1e-5):
                 best_stage=name; best_groups=list(groups); best_score=score
+                best_models=models
 
         print("\nIncremental feature value (negative delta is better):")
         prior=None
@@ -88,6 +98,7 @@ def main():
         if best_stage is None:
             best_stage="price"
             best_groups=["price"]
+            best_models=price_models
         holdout_valid=sum(
             bool(x.get("beats_baseline") and x.get("oof_rows",0)>=1000)
             for x in results[best_stage]["horizons"].values()
@@ -101,6 +112,8 @@ def main():
         }
         if run_id:
             db.table("model_validation_runs").update(payload).eq("id",run_id).execute()
+        forecast_report=publish_forecasts(db,run_id,best_models,payload)
+        print("Observed learning-model forecasts:",json.dumps(forecast_report),flush=True)
 
         out=API_DIR/"ablation_results.json"
         out.write_text(json.dumps({

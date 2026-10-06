@@ -8,27 +8,39 @@ MAX_CATALYST_AGE_DAYS = 30
 
 
 def upcoming_earnings(db, candidates, signal_date, observed_at=None):
-    """Expected report dates are risk flags; they do not alter selection weights."""
+    """Expected report dates support the primary-horizon event exclusion gate."""
     if not candidates:
         return {}
     observed_at = observed_at or datetime.now(timezone.utc).isoformat()
     day = date.fromisoformat(signal_date)
     sessions = []
-    while len(sessions) < 20:
+    while len(sessions) < 21:
         day += timedelta(days=1)
         if is_trading_day(day):
             sessions.append(day.isoformat())
     events = (db.table("earnings_events")
               .select("company_id,reported_date,event_time,estimated_eps,estimated_revenue,source,captured_at")
               .in_("company_id", [r["company_id"] for r in candidates])
-              .gt("reported_date", signal_date).lte("reported_date", sessions[-1])
+              .gte("reported_date", signal_date).lte("reported_date", sessions[-1])
               .lte("captured_at", observed_at).is_("reported_eps", "null")
               .order("reported_date").limit(1000).execute().data or [])
+    return upcoming_from_events(events,signal_date,observed_at)
+
+
+def upcoming_from_events(events,signal_date,observed_at=None):
+    day=date.fromisoformat(signal_date); sessions=[]
+    while len(sessions)<21:
+        day+=timedelta(days=1)
+        if is_trading_day(day):
+            sessions.append(day.isoformat())
     result = {}
-    for event in events:
+    for event in sorted(events,key=lambda x:x["reported_date"]):
+        if event.get("reported_eps") is not None or not signal_date<=event["reported_date"]<=sessions[-1]:
+            continue
         item = dict(event)
         item["date_status"] = "expected"
         item["within_horizons"] = [h for h in (5, 10, 20) if item["reported_date"] <= sessions[h-1]]
+        item["within_execution_horizons"] = [h for h in (5,10,20) if item["reported_date"] <= sessions[h]]
         result.setdefault(item["company_id"], item)
     return result
 

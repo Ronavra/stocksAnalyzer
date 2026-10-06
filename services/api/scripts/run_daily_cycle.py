@@ -21,8 +21,11 @@ def run(name,*args):
 if __name__=="__main__":
     db=get_supabase()
     started=datetime.now(timezone.utc).isoformat()
-    created=db.table("pipeline_runs").insert({"pipeline":"daily_market_research","started_at":started,"status":"running"}).execute().data or []
-    run_id=created[0]["id"] if created else None
+    claim=db.rpc("claim_daily_market_refresh",{"p_force":os.getenv("FORCE_DAILY_REFRESH","false").lower()=="true"}).execute().data or {}
+    if not claim.get("run"):
+        print("Daily refresh already completed or claimed by another scheduler; skipping.")
+        sys.exit(0)
+    run_id=claim["id"]
     timings={}
     try:
         timings["ingest_prices_seconds"]=run("ingest_prices.py","--all","--daily-credit-budget",os.getenv("PRICE_CREDIT_BUDGET","550"))

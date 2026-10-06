@@ -5,6 +5,7 @@ class Query:
     def select(self,*args): return self
     def in_(self,col,values): self.rows=[r for r in self.rows if r[col] in values];return self
     def gt(self,col,value): self.rows=[r for r in self.rows if r[col]>value];return self
+    def gte(self,col,value): self.rows=[r for r in self.rows if r[col]>=value];return self
     def lte(self,col,value): self.rows=[r for r in self.rows if r[col]<=value];return self
     def is_(self,col,value): self.rows=[r for r in self.rows if r.get(col) is None];return self
     def order(self,col): self.rows.sort(key=lambda r:r[col]);return self

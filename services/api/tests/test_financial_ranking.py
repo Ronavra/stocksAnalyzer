@@ -125,3 +125,11 @@ def test_analyst_component_changes_order_and_keeps_neutral_weight_when_missing()
     assert missing["contributions"]["analyst"]==5
     assert missing["contributions"]["financial"]==.45*missing["financial"]["score"]
     assert sum(summary["weights"].values())==1
+
+
+def test_report_in_execution_window_excludes_candidate_without_changing_weights():
+    inputs,rows=inputs_and_candidates()
+    picks,summary=finance.rank_candidates(rows,inputs,ASOF,now=NOW,upcoming={10:{"within_execution_horizons":[5,10,20]}})
+    assert 10 not in [p['row']['company_id'] for p in picks]
+    assert summary['rejected']['earnings_within_primary_horizon']==1
+    assert summary['weights']=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}

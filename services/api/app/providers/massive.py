@@ -1,5 +1,6 @@
 import os
 import httpx
+import re
 from urllib.parse import urlparse, parse_qsl
 
 BASE_URL="https://api.massive.com"
@@ -20,7 +21,16 @@ class MassiveProvider:
             raise RuntimeError("Massive rate limit reached")
         if r.is_error:
             # URLs may contain query credentials; never log a provider URL.
-            raise RuntimeError(f"Massive request failed with HTTP {r.status_code}")
+            detail=""
+            try:
+                body=r.json()
+                detail=str(body.get("error") or body.get("message") or "")
+                detail=detail.replace(self.api_key,"[redacted]")
+                detail=re.sub(r"https?://[^\s]+","[provider URL]",detail)
+                detail=re.sub(r"(?i)(?:api[_-]?key|authorization|token)\s*[:=]\s*[^,;\s]+","[credential]",detail)
+            except (ValueError,AttributeError):
+                pass
+            raise RuntimeError(f"Massive request failed with HTTP {r.status_code}: {detail[:250]}")
         return r.json()
 
     async def paginated(self,path,params,max_pages=30):
@@ -52,7 +62,9 @@ class MassiveProvider:
         return await self.paginated("/benzinga/v1/earnings",params)
 
     async def guidance(self,ticker:str|None=None,limit:int=50000,updated_since:str|None=None):
-        params={"limit":limit,"sort":"last_updated.asc" if updated_since else "date.asc"}
+        # Use the documented guidance date ordering; updated records are still
+        # bounded by last_updated.gte and all pages are consumed.
+        params={"limit":limit,"sort":"date.asc"}
         if ticker:
             params["ticker"]=ticker
         if updated_since:

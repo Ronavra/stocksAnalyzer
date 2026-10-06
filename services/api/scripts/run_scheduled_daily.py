@@ -14,11 +14,14 @@ from scripts.daily_run_gate import should_run
 def main():
     db=get_supabase()
     if not should_run(db,"independent_scheduler"):
-        print("Daily refresh already completed or active; skipping."); return
+        print("Daily refresh already completed or active; checking Sunday's publication.")
+        subprocess.run([sys.executable,str(API_DIR/"scripts"/"run_weekly_cycle.py")],check=True,cwd=API_DIR)
+        return
     commands=[("run_daily_cycle.py",[]),("refresh_research_sources.py",["--earnings-only"])]
     if os.getenv("SEC_USER_AGENT"):
         commands.append(("refresh_research_sources.py",["--sec-only"]))
-    commands.extend([("refresh_analyst_consensus.py",["--max-age-hours","24"]),("refresh_enrichment.py",[])])
+    commands.extend([("refresh_analyst_consensus.py",["--max-age-hours","24"]),
+                     ("run_weekly_cycle.py",[]),("refresh_enrichment.py",[])])
     for name,args in commands:
         subprocess.run([sys.executable,str(API_DIR/"scripts"/name),*args],check=True,cwd=API_DIR)
 

@@ -13,6 +13,7 @@ from app.db.client import get_supabase
 from app.research.earnings_catalysts import recent_earnings, upcoming_earnings
 from app.research.weekly_rank_metrics import ROUND_TRIP_COST
 from app.research.financial_ranking import load_inputs, rank_candidates, SIGNAL_VERSION
+from app.research.recommendation_cadence import publication_due
 import json
 
 def current_candidates(rows):
@@ -30,12 +31,8 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
     signal_date,rows=current_candidates(rows)
     if not rows:
         raise RuntimeError(f"No current setup snapshots for the latest price date {signal_date}")
-    if not dry_run:
-        existing=(db.table("recommendation_cohorts").select("signal_date,model_version,status")
-                  .eq("signal_date",signal_date).limit(1).execute().data or [])
-        if existing:
-            print(f"Weekly cohort for {signal_date} already exists; preserving frozen selection.")
-            return []
+    if not dry_run and not publication_due(db,signal_date):
+        return []
     earnings=recent_earnings(db,rows)
     upcoming=upcoming_earnings(db,rows,signal_date)
     picks,summary=rank_candidates(rows,load_inputs(db,signal_date),signal_date,earnings,top=top,upcoming=upcoming)
@@ -79,9 +76,11 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
             "p_signal_date":signal_date,"p_model_version":SIGNAL_VERSION,
             "p_horizons":list(horizons),"p_predictions":records,"p_metadata":report,
         }).execute().data
-        if result and result.get("status")=="already_published":
-            print("Another run published this cohort; preserving its selection.")
+        if isinstance(result,dict) and result.get("status") in ("already_published","not_due"):
+            print("Another run advanced the publication clock; preserving its selection:",json.dumps(result))
             return []
+        if not isinstance(result,dict) or result.get("status")!="published":
+            raise RuntimeError(f"Recommendation publication blocked: {result}")
     return out
 
 

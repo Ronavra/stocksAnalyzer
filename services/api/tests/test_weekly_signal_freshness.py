@@ -38,6 +38,10 @@ class Db:
         self.saved = []
 
     def rpc(self, name, params=None):
+        if name == "recommendation_publication_status":
+            status="already_published" if self.existing else "due"
+            result=getattr(self,"cadence",{"status":status})
+            return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": result})()})()
         if name == "publish_recommendation_cohort":
             self.publication=params
             self.saved.extend(params["p_predictions"])
@@ -140,3 +144,43 @@ def test_all_horizons_are_published_in_one_rpc(monkeypatch):
     weekly.generate(db)
     assert len(db.publication["p_predictions"])==3
     assert {r["horizon_days"] for r in db.publication["p_predictions"]}=={5,10,20}
+
+
+@pytest.mark.parametrize("force",[False,True])
+def test_next_date_and_new_policy_cannot_bypass_sunday_clock(force):
+    db=Db([candidate(1,"2026-09-29")])
+    db.cadence={"status":"not_due","schedule":"sunday","publication_week_start":"2026-09-27"}
+    # No finance/earnings calls are mocked: the early clock check must skip them.
+    assert weekly.generate(db,force=force)==[]
+    assert db.saved==[]
+
+
+def test_missing_market_session_blocks_publication():
+    db=Db([candidate(1,"2026-09-29")])
+    db.cadence={"status":"market_session_unavailable"}
+    with pytest.raises(RuntimeError,match="publication blocked"):
+        weekly.generate(db)
+    assert db.saved==[]
+
+
+def test_preview_is_allowed_before_next_publication(monkeypatch):
+    db=Db([candidate(1,"2026-09-29")])
+    db.cadence={"status":"not_due"}
+    mock_finance(monkeypatch)
+    monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
+    assert len(weekly.generate(db,dry_run=True))==1
+    assert db.saved==[]
+
+
+def test_publication_clock_can_advance_while_ranking(monkeypatch):
+    class RacingDb(Db):
+        def rpc(self,name,params=None):
+            if name=="publish_recommendation_cohort":
+                return type("Rpc",(),{"execute":lambda _:type("Result",(),{
+                    "data":{"status":"not_due","schedule":"sunday"}})()})()
+            return super().rpc(name,params)
+    db=RacingDb([candidate(1,"2026-09-29")])
+    mock_finance(monkeypatch)
+    monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
+    assert weekly.generate(db)==[]
+    assert db.saved==[]

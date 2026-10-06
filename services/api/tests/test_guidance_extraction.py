@@ -23,3 +23,10 @@ def test_quarter_actuals_withdrawn_and_ambiguous_table_values_stay_unknown():
         '<p>Full-year 2026 guidance EPS of $2.00 to $1.00.</p>',
     ):
         assert extract_guidance(html,1,EVENT)==[]
+
+
+def test_explicit_fiscal_year_range_in_narrative_is_supported():
+    html='<p>The company expects fiscal 2027 revenue to be in the range of $12 billion to $13 billion and adjusted diluted EPS of $5.00 to $5.50.</p>'
+    rows=extract_guidance(html,1,EVENT)
+    assert len(rows)==2
+    assert {r['fiscal_year'] for r in rows}=={2027}

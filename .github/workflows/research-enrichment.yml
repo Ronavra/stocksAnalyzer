@@ -8,6 +8,12 @@ on:
       - "services/api/scripts/refresh_enrichment.py"
       - "services/api/scripts/ingest_news.py"
       - "services/api/app/research/guidance.py"
+      - "services/api/app/providers/massive.py"
+      - "services/api/app/providers/sec_documents.py"
+      - "services/api/scripts/enrich_company_disclosures.py"
+      - "services/api/scripts/ingest_massive_guidance.py"
+      - "services/api/sql/research_completion.sql"
+      - ".github/workflows/research-enrichment.yml"
   workflow_run:
     workflows: ["SEC Fundamentals Refresh"]
     types: [completed]

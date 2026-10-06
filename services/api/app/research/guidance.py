@@ -42,7 +42,7 @@ def extract_guidance(html,company_id,event):
             continue
         if re.search(r"\b(no|not|withdraw\w*|suspend\w*)\b.{0,35}\b(guidance|outlook|forecast)\b",line,re.I):
             continue
-        year_match=re.search(r"\b(?:full[- ]year|fiscal year|FY)\s*(?:for\s*)?(20\d{2})\b|\b(20\d{2})\s+full[- ]year\b",line,re.I)
+        year_match=re.search(r"\b(?:full[- ]year|fiscal(?: year)?|FY)\s*(?:for\s*)?(20\d{2})\b|\b(20\d{2})\s+full[- ]year\b",line,re.I)
         if not year_match:
             continue
         year=int(year_match.group(1) or year_match.group(2))
@@ -51,8 +51,8 @@ def extract_guidance(html,company_id,event):
         # Require a labelled numeric interval, rather than inferring a value
         # from a financial table whose year / GAAP columns may be ambiguous.
         patterns={
-            "eps":rf"(?P<method>adjusted|GAAP|diluted)?\s*(?:diluted\s+)?(?:EPS|earnings per (?:diluted )?share)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be|range)\s+|is\s+)?{number}\s*(?:to|and|[-–])\s*{number}",
-            "revenue":rf"(?:revenue|sales)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be|range)\s+|is\s+)?{number}\s*(million|billion)?\s*(?:to|and|[-–])\s*{number}\s*(million|billion)",
+            "eps":rf"(?P<method>adjusted|GAAP|diluted)?\s*(?:diluted\s+)?(?:EPS|earnings per (?:diluted )?share)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range(?: of)?)?|range)\s+|is\s+)?{number}\s*(?:to|and|[-–])\s*{number}",
+            "revenue":rf"(?:revenue|sales)\s+(?:guidance\s+)?(?:of\s+|in (?:the )?range (?:of )?|between\s+|to (?:be(?: in (?:the )?range(?: of)?)?|range)\s+|is\s+)?{number}\s*(million|billion)?\s*(?:to|and|[-–])\s*{number}\s*(million|billion)",
         }
         for metric,pattern in patterns.items():
             match=re.search(pattern,line,re.I)

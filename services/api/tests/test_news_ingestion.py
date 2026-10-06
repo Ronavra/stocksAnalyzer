@@ -34,3 +34,35 @@ def test_pagination_rejects_external_hosts_and_never_returns_truncated_results(m
     monkeypatch.setattr(provider,"_get",get)
     with pytest.raises(RuntimeError,match="Invalid"):
         asyncio.run(provider.news("2026-10-05","2026-10-06"))
+
+
+def test_guidance_uses_documented_date_order_while_filtering_updates(monkeypatch):
+    provider=MassiveProvider('test-only')
+    async def get(path,params):
+        assert path=='/benzinga/v1/guidance'
+        assert params['sort']=='date.asc' and params['last_updated.gte']=='2026-10-01T00:00:00Z'
+        return {'results':[]}
+    monkeypatch.setattr(provider,'_get',get)
+    assert asyncio.run(provider.guidance(updated_since='2026-10-01T00:00:00Z'))==[]
+
+
+def test_vendor_adjusted_guidance_preserves_basis_and_stable_revision_identity():
+    from scripts.ingest_massive_guidance import payload_for
+    value={'date':'2026-10-01','benzinga_id':'a','eps_method':'adj','min_eps_guidance':2,'max_eps_guidance':3}
+    first=payload_for(1,value,'2026-10-02T18:00:00Z')
+    repeated=payload_for(1,value,'2026-10-05T18:00:00Z')
+    revised=payload_for(1,{**value,'max_eps_guidance':4},'2026-10-05T18:00:00Z')
+    assert first['eps_method']=='adjusted'
+    assert first['source_record_id']==repeated['source_record_id']!=revised['source_record_id']
+
+
+def test_provider_error_reports_cause_without_key_or_request_url(monkeypatch):
+    import httpx
+    key='dummy-sensitive-api-key'
+    original=httpx.AsyncClient
+    transport=httpx.MockTransport(lambda request:httpx.Response(400,json={'error':f'Invalid sort; apiKey={key} URL https://api.massive.com/path?apiKey={key}'}))
+    monkeypatch.setattr(httpx,'AsyncClient',lambda **kwargs:original(transport=transport,**kwargs))
+    with pytest.raises(RuntimeError) as error:
+        asyncio.run(MassiveProvider(key)._get('/benzinga/v1/guidance'))
+    message=str(error.value)
+    assert 'Invalid sort' in message and key not in message and 'https://' not in message

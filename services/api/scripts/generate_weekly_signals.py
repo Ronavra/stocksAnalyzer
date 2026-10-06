@@ -37,7 +37,8 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
             print(f"Weekly cohort for {signal_date} already exists; preserving frozen selection.")
             return []
     earnings=recent_earnings(db,rows)
-    picks,summary=rank_candidates(rows,load_inputs(db,signal_date),signal_date,earnings,top=top)
+    upcoming=upcoming_earnings(db,rows,signal_date)
+    picks,summary=rank_candidates(rows,load_inputs(db,signal_date),signal_date,earnings,top=top,upcoming=upcoming)
     report={**summary,"dry_run":dry_run,"picks":[{
         "ticker":p["row"].get("ticker"),"company_id":p["row"]["company_id"],
         "score":p["score"],"financial":p["financial"],"contributions":p["contributions"],
@@ -48,7 +49,6 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
     print("Financial weekly selection:",json.dumps(summary),flush=True)
     out=[]
     records=[]
-    upcoming=upcoming_earnings(db,rows,signal_date)
     for rank,p in enumerate(picks,1):
         row=p["row"]
         diagnostics={

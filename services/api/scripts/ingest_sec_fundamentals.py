@@ -16,6 +16,7 @@ from app.db.client import get_supabase
 from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, financial_reports, merge_company_facts
 from app.research.financial_quality import company_quality, summarize_quality
 from app.research.company_disclosures import current_reports
+from app.providers.sec_supplemental import attach_supplemental
 
 DURATION_FIELDS=("revenue","operating_income","net_income","eps_diluted","free_cash_flow","capex")
 
@@ -36,6 +37,7 @@ def upsert_company_metrics(db, company_id, annual_rows, quarter_rows, ttm_rows, 
                 "cash": x.get("cash"),
                 "total_debt": x.get("total_debt"),
                 "shares_outstanding": x.get("shares_outstanding"),
+                "supplemental": x.get("supplemental") or {},
                 "source": "sec",
                 "filed_date": x.get("filed_date"),
                 "accession_number": x.get("accn"),
@@ -86,6 +88,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
             q4["cash"]=a.get("cash")
             q4["total_debt"]=a.get("total_debt")
             q4["shares_outstanding"]=a.get("shares_outstanding")
+            q4["supplemental"]=a.get("supplemental") or {}
             existing=next((q for q in quarters if q["period_end"]==q4["period_end"]),None)
             if existing:
                 for key,value in q4.items():
@@ -112,6 +115,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
         rec["cash"]=window[-1].get("cash")
         rec["total_debt"]=window[-1].get("total_debt")
         rec["shares_outstanding"]=window[-1].get("shares_outstanding")
+        rec["supplemental"]=window[-1].get("supplemental") or {}
         filed=[q.get("filed_date") for q in window if q.get("filed_date")]
         rec["filed_date"]=max(filed) if filed else None
         rec["accn"]=window[-1].get("accn")
@@ -151,6 +155,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
             for field in ("cash","total_debt","shares_outstanding"):
                 if rec.get(field) is None:
                     rec[field]=now[-1].get(field)
+            rec["supplemental"]=now[-1].get("supplemental") or {}
             if used:
                 rec["filed_date"]=max([rec.get("filed_date") or "",a.get("filed_date") or ""]+[q.get("filed_date") or "" for q in now+before])
                 rec["accn"]=now[-1].get("accn")
@@ -206,7 +211,7 @@ async def main():
     provider = SECProvider()
     companies = (
         db.table("companies")
-        .select("id,ticker,cik")
+        .select("id,ticker,cik,industry,scoring_profile")
         .eq("is_sp500", True)
         .order("ticker")
         .execute()
@@ -266,9 +271,18 @@ async def main():
             source_data=result.value
             fallback_errors=[]; recovered=[]
             parsed=max([r["period_end"] for r in annual_rows+quarter_rows],default="")
+            is_bank=company.get("scoring_profile")=="bank" or company.get("industry") in ("Diversified Banks","Regional Banks")
             if latest_report:
                 source_data,annual_rows,quarter_rows,recovered,fallback_errors=await recover_filing_history(
                     provider,company,source_data,submissions,a.years,a.quarters)
+                if is_bank and latest_report.get("accession_number") not in recovered:
+                    try:
+                        extra=await provider.filing_facts(company["cik"],latest_report)
+                        source_data=merge_company_facts(source_data,extra)
+                    except Exception as exc:
+                        fallback_errors.append({"accession_number":latest_report.get("accession_number"),"error":str(exc)[:300]})
+            annual_rows=attach_supplemental(annual_rows,source_data)
+            quarter_rows=attach_supplemental(quarter_rows,source_data)
             shares_map = shares_outstanding_by_period(source_data)
 
             def attach_shares(rows):
@@ -297,6 +311,9 @@ async def main():
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)
+            latest_ttm=ttm_rows[-1] if ttm_rows else {}
+            item["bank_metrics"]={k:(latest_ttm.get("supplemental") or {}).get(k) for k in ("equity","cet1_ratio","tier1_ratio","leverage_ratio")}
+            item["bank_profile"]=is_bank
             item["filing_fallback_used"]=bool(recovered)
             item["recovered_filing_accessions"]=recovered
             item["companyfacts_latest_period"]=parsed or None

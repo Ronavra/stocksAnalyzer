@@ -2,12 +2,13 @@ from fastapi import APIRouter, HTTPException
 from ..db.client import get_supabase
 from ..research.analyst import build as build_analyst_assessment
 from ..research.fundamentals import derive as derive_fundamentals
-from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings
+from ..research.earnings_catalysts import catalyst_adjustment, recent_earnings, upcoming_earnings
+from ..research.news import news_summary
 from ..research.validation_gate import validated_horizons
 from ..research.signal_history import complete_oldest_signal_cohort
 from ..research.signal_prices import load_price_timelines
 from ..research.current_valuation import current_valuations
-from ..research.financial_ranking import load_inputs, rank_candidates, WEIGHTS, POLICY_VERSION
+from ..research.financial_ranking import load_inputs, rank_candidates, WEIGHTS, POLICY_VERSION, finance_profile
 from ..research.analyst_consensus import load_snapshots, consensus_score
 from datetime import datetime,timezone,timedelta
 from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
@@ -16,6 +17,7 @@ from ..research.prospective_metrics import prospective_metrics, paged
 from ..market_calendar import latest_completed_session, NY
 from ..research.daily_schedule import schedule_status
 from ..research.market_freshness import market_freshness
+from ..research.model_identity import MODEL_VERSION
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
@@ -28,10 +30,11 @@ def candidates():
     result=[{"ticker":r["ticker"],"company":r["company"],"sector":r.get("sector"),"signal":"setup","score":r.get("research_priority_score"),"coverage":r.get("research_priority_coverage"),"catalyst":r.get("research_priority_reason"),"fundamentals":r.get("fundamentals_score"),"valuation":r.get("valuation_score"),"earnings":r.get("earnings_score"),"pe":valuations.get(r["company_id"],{}).get("pe"),"price_to_fcf":valuations.get(r["company_id"],{}).get("price_to_fcf"),"as_of_date":r.get("as_of_date"),"opportunity_score":r.get("opportunity_score"),"setup_probability_up":r.get("setup_probability_up"),"setup_median_return_5d":r.get("setup_median_return_5d"),"setup_sample_size":r.get("setup_sample_size"),"upside_to_60d_high":r.get("upside_to_60d_high"),"setup_drawdown_60d":r.get("setup_drawdown_60d"),"opportunity_reason":r.get("opportunity_reason"),"current_price":r.get("current_price"),"price_date":r.get("price_date"),"price_source":r.get("price_source"),"earnings_catalyst":earnings.get(r.get("company_id"))} for r in rows]
     signal_date=max((str(r.get("price_date") or "") for r in rows),default="")
     current=[r for r in rows if r.get("price_date")==signal_date and r.get("as_of_date")==signal_date]
+    upcoming=upcoming_earnings(db,current,signal_date)
     ranking={}; ranking_error=None
     inputs=load_inputs(db,signal_date)
     try:
-        picks,summary=rank_candidates(current,inputs,signal_date,earnings,top=None)
+        picks,summary=rank_candidates(current,inputs,signal_date,earnings,top=None,upcoming=upcoming)
         ranking={p["row"]["ticker"]:p for p in picks}
     except RuntimeError as exc:
         ranking_error=str(exc)
@@ -43,6 +46,8 @@ def candidates():
         x["research_rank_score"]=p["score"] if p else None
         x["financial_ranking"]=p["financial"] if p else None
         x["ranking_weights"]=WEIGHTS
+        x["upcoming_earnings"]=upcoming.get(cid)
+        x["earnings_risk_excluded"]=5 in (upcoming.get(cid) or {}).get("within_execution_horizons",[])
         x["financial_ranking_status"]="eligible" if p else (ranking_error or "Does not meet freshness, financial coverage or score requirements")
     result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
     return result
@@ -75,14 +80,15 @@ def data_audit():
     layers.append({"key":"disclosures","label":"SEC disclosures · past 90 days","companies":disclosure_companies,"total":total,
         "coverage_pct":round(100*disclosure_companies/total,1) if total else 0,"status":"observed"})
     for table,label in (("corporate_guidance_events","Corporate guidance"),("news_events","News articles")):
-        ids=paged(db.table(table).select("id,company_id").order("id"))
+        recent_col="published_at" if table=="news_events" else "event_date"
+        ids=paged(db.table(table).select("id,company_id").gte(recent_col,(today-timedelta(days=90)).isoformat()).order("id"))
         n=len({r["company_id"] for r in ids}&universe_ids)
         layers.append({"key":table,"label":label,"companies":n,"total":total,
             "coverage_pct":round(100*n/total,1) if total else 0,"status":"partial" if n<total*.95 else "strong"})
     layers.append({"key":"analyst_consensus","label":"Current analyst recommendations","companies":count,"total":total,
                    "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
-    notes.append("Official SEC current reports are disclosures, not a complete news feed. Sentiment, bank capital ratios and company guidance are not inferred from their titles.")
+    notes.append("News sentiment is attributed to the provider. SEC guidance uses explicit annual ranges with source evidence; unparsed releases and missing bank capital ratios remain unknown.")
     if d.get("estimates",0)<total*.95:
         notes.append("The standalone analyst forecast table has limited coverage; upcoming EPS consensus is audited separately from earnings events. Neither is the analyst recommendation consensus used in the 10% selection weight.")
     reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
@@ -120,7 +126,32 @@ def company(ticker:str):
     consensus=(db.table("analyst_consensus_snapshots").select("*").eq("company_id",c["id"]).order("observed_at",desc=True).order("period_date",desc=True).limit(40).execute().data or [])
     disclosures=(db.table("company_disclosures").select("form,filing_date,published_at,observed_at,headline,source_url,items")
                  .eq("company_id",c["id"]).order("published_at",desc=True).limit(10).execute().data or [])
+    news=(db.table("news_events").select("headline,published_at,created_at,source_url,publisher,sentiment,sentiment_method,why_it_matters")
+          .eq("company_id",c["id"]).order("published_at",desc=True).limit(20).execute().data or [])
+    guidance=(db.table("corporate_guidance_events").select("event_date,fiscal_year,fiscal_period,eps_method,revenue_method,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,source,source_url,captured_at,evidence")
+              .eq("company_id",c["id"]).order("event_date",desc=True).limit(15).execute().data or [])
+    ttm=(db.table("financial_metrics").select("period_end,filed_date,net_income,supplemental")
+         .eq("company_id",c["id"]).eq("period_type","ttm").order("period_end",desc=True).limit(8).execute().data or [])
+    bank=None
+    if ttm and finance_profile(c)=="bank":
+        latest=ttm[0]; old=next((r for r in ttm[1:] if 300<=(datetime.fromisoformat(latest["period_end"])-datetime.fromisoformat(r["period_end"])).days<=450),None)
+        equity=(latest.get("supplemental") or {}).get("equity",{}).get("value")
+        old_equity=((old or {}).get("supplemental") or {}).get("equity",{}).get("value")
+        roe=float(latest["net_income"])/((float(equity)+float(old_equity))/2) if latest.get("net_income") is not None and equity and old_equity and float(equity)>0 and float(old_equity)>0 else None
+        bank={"period_end":latest["period_end"],"filed_date":latest["filed_date"],"return_on_equity":roe,
+              "roe_basis":"TTM net income / mean beginning and ending shareholders equity","reported":latest.get("supplemental") or {}}
+    model=(db.table("model_forecasts").select("feature_date,horizon_days,model_version,validation_run_id,generated_at,probability_up,expected_return,feature_coverage,model_validation_runs!inner(status)")
+           .eq("company_id",c["id"]).eq("model_version",MODEL_VERSION)
+           .eq("model_validation_runs.status","success")
+           .eq("feature_date",latest_completed_session(datetime.now(timezone.utc).astimezone(NY)).isoformat())
+           .order("generated_at",desc=True).limit(9).execute().data or [])
+    latest_forecasts={}
+    for forecast in model:
+        forecast.pop("model_validation_runs",None)
+        latest_forecasts.setdefault(forecast["horizon_days"],forecast)
     return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,"disclosures":disclosures,
+            "news":news,"news_summary":news_summary(news),"guidance":guidance,"bank_metrics":bank,
+            "model_forecasts":list(latest_forecasts.values()),
             "analyst_consensus":consensus_score(consensus,datetime.now(timezone.utc).date().isoformat())}
 
 @router.get("/framework")
@@ -177,6 +208,10 @@ def system_health():
                   .eq("pipeline","weekly_financial_comparison").order("started_at",desc=True).limit(1).execute().data or [])
     analyst_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
                   .eq("pipeline","analyst_consensus_refresh").order("started_at",desc=True).limit(1).execute().data or [])
+    enrichment_runs=(db.table("pipeline_runs").select("finished_at,status,metadata,error_message")
+                     .eq("pipeline","research_enrichment").order("started_at",desc=True).limit(1).execute().data or [])
+    deadline_runs=(db.table("pipeline_runs").select("finished_at,status,metadata,error_message")
+                  .eq("pipeline","independent_daily_deadline").order("started_at",desc=True).limit(1).execute().data or [])
     latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
     feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     audit=db.rpc("research_data_audit").execute().data or {}
@@ -212,6 +247,8 @@ def system_health():
     return {
         "status":"overdue" if overdue else run.get("status") if run else "not_run",
         "daily_schedule":schedule,
+        "independent_deadline_monitor":deadline_runs[0] if deadline_runs else None,
+        "research_enrichment":enrichment_runs[0] if enrichment_runs else None,
         "market_data_current":fresh,"expected_market_date":expected,
         "market_freshness":freshness,
         "price_session_quality":quality,

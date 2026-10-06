@@ -15,6 +15,8 @@ load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
 from app.research.financial_ranking import load_inputs, rank_candidates, POLICY_VERSION, WEIGHTS
 from app.research.weekly_rank_metrics import ROUND_TRIP_COST, tail_mean, block_lower_bound
+from app.research.observations import close_cutoff, member_asof, timestamp, earnings_versions
+from app.research.earnings_catalysts import upcoming_from_events
 
 
 def period_summary(cohorts):
@@ -42,6 +44,14 @@ def compare(prepared,inputs):
     cohorts=[]; excluded=Counter(); candidate_weeks=0
     analyst_weeks=0
     for anchor,records in by_date.items():
+        if inputs.get("point_in_time"):
+            first=timestamp(inputs.get("first_observed_at"))
+            if first is None or close_cutoff(anchor)<first:
+                excluded["financial_history_not_observed"]+=1; continue
+            earnings_start=timestamp(inputs.get("first_earnings_observation"))
+            if earnings_start is None or close_cutoff(anchor)<earnings_start:
+                excluded["earnings_history_not_observed"]+=1; continue
+            records=[r for r in records if member_asof(inputs.get("memberships",[]),r["company_id"],anchor)]
         rows=[]; earnings={}; lookup={r["company_id"]:r for r in records}
         baseline=sorted((r for r in records if r["screen_score"] is not None),
                         key=lambda r:(-r["screen_score"],str(r["company_id"])))[:5]
@@ -54,7 +64,16 @@ def compare(prepared,inputs):
             event=r.get("historical_earnings")
             if event:
                 earnings[r["company_id"]]=event
-        picks,summary=rank_candidates(rows,inputs,anchor,earnings,live=False)
+        upcoming={}
+        if inputs.get("point_in_time"):
+            events=earnings_versions(inputs.get("earnings_observations",[]),close_cutoff(anchor))
+            earnings={}
+            for event in sorted(events,key=lambda x:x["reported_date"]):
+                age=(datetime.fromisoformat(anchor)-datetime.fromisoformat(event["reported_date"])).days
+                if event.get("reported_eps") is not None and 0<age<=30 and event.get("source")=="massive_benzinga":
+                    earnings[event["company_id"]]=event
+            upcoming=upcoming_from_events(events,anchor)
+        picks,summary=rank_candidates(rows,inputs,anchor,earnings,live=False,now=close_cutoff(anchor),upcoming=upcoming)
         if summary.get("analyst_status",{}).get("current",0):
             analyst_weeks+=1
         if summary["ranking_eligible"]:
@@ -67,7 +86,9 @@ def compare(prepared,inputs):
                         "financial_eligible":summary["financial_eligible"],
                         "financial_picks":[p["row"]["company_id"] for p in picks]})
     return {"policy_version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
-            "evaluation_protocol":"fixed_financial_analyst_next_close_5d_v2","entry_policy":"next_session_close",
+            "financial_history_mode":"observed_point_in_time" if inputs.get("point_in_time") else "filing_date_proxy",
+            "first_financial_observation":inputs.get("first_observed_at"),"first_earnings_observation":inputs.get("first_earnings_observation"),
+            "evaluation_protocol":"fixed_financial_analyst_next_close_5d_v3_observed","entry_policy":"next_session_close",
             "analyst_observed_weeks":analyst_weeks,"analyst_comparison_ready":analyst_weeks>=26,
             "round_trip_cost":ROUND_TRIP_COST,"latest_price_date":prepared["latest_date"],
             "attempted_weeks":len(dates),"weeks_with_qualifying_financial_candidates":candidate_weeks,
@@ -77,9 +98,8 @@ def compare(prepared,inputs):
             "all":period_summary(cohorts),"cohorts":cohorts,
             "limitations":[
                 "Weights are the user's fixed preference, not fitted or chosen from returns.",
-                "Historical SEC audit snapshots are unavailable: replay uses period age and filing-date availability only; live ranking requires latest-filing verification.",
-                "Restatements/backfills overwrite historical filing rows; history can leave early weeks in cash and is not point-in-time-certified.",
-                "Historical constituents/sectors use today's universe; earnings can include provider revisions.",
+                "Strict replay uses observed financial versions and recorded constituent intervals; dates before the archive began are excluded rather than counted as cash weeks.",
+                "Original pre-archive filings, event calendars and historical sector classifications are not reconstructed. Earnings and expected dates use only actually observed versions.",
                 "The outcome period has been inspected in prior research; the last 20% is a descriptive audit, not a new untouched test.",
                 "This comparison does not approve a return forecast. Frozen forward outcomes are required.",
                 "Analyst consensus requires actual capture timestamps. Backfilled monthly rows cannot be treated as known then; missing historical observations are neutral, so this replay does not establish analyst value.",
@@ -93,7 +113,7 @@ def main():
         "started_at":datetime.now(timezone.utc).isoformat()}).execute().data or []
     run_id=created[0]["id"] if created else None
     try:
-        report=compare(prepare(db),load_inputs(db,analyst_history=True))
+        report=compare(prepare(db,point_in_time=True),load_inputs(db,analyst_history=True,point_in_time=True))
         (API_DIR/"financial_ranking_comparison.json").write_text(json.dumps(report,indent=2)+"\n")
         if run_id:
             db.table("pipeline_runs").update({"status":"success","finished_at":datetime.now(timezone.utc).isoformat(),"metadata":report}).eq("id",run_id).execute()

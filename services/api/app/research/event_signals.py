@@ -17,7 +17,7 @@ def _mid(lo,hi):
 
 def _rel(a,b):
     if a is None or b in (None,0): return None
-    return float(a)/abs(float(b))-1
+    return (float(a)-float(b))/abs(float(b))
 
 def derive(earnings:dict|None,guidance:dict|None)->EventSignals:
     e=earnings or {}; g=guidance or {}

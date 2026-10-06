@@ -5,6 +5,8 @@ def validated_horizons(run):
     if not run or run.get("status")!="success" or run.get("model_version")!=MODEL_VERSION:
         return ()
     stage=(run.get("results") or {}).get(run.get("best_stage")) or {}
+    if stage.get("observed_family_ready") is False:
+        return ()
     horizons=stage.get("horizons") or {}
     valid=[]
     for h in HORIZONS:

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from typing import Any
 from .financial_quality import MAX_TTM_AGE_DAYS
 from .model_identity import HORIZONS, MODEL_VERSION
+from .observations import available, close_cutoff, member_asof
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -34,6 +35,7 @@ EARNINGS_FEATURES=[
 FUND_FEATURES=[
     "fund_revenue_growth_yoy","fund_eps_growth_yoy","fund_operating_margin",
     "fund_net_margin","fund_fcf_margin","fund_debt_to_fcf","fund_cash_to_debt",
+    "fund_return_on_equity","fund_cet1_ratio",
     "fund_age_days","fund_revenue_growth_accel","fund_eps_growth_accel",
     "fund_operating_margin_delta","fund_fcf_margin_delta","fund_fcf_to_net_income",
 ]
@@ -45,6 +47,7 @@ GUIDANCE_FEATURES=[
     "guidance_eps_gap","guidance_revenue_gap","guidance_eps_change",
     "guidance_revenue_change","guidance_days_since",
 ]
+NEWS_FEATURES=["news_articles_7d","news_provider_sentiment_7d","news_sentiment_observations_7d"]
 FEATURE_GROUPS={
     "price":BASE_PRICE_FEATURES,
     "context":CONTEXT_FEATURES,
@@ -52,8 +55,9 @@ FEATURE_GROUPS={
     "fundamentals":FUND_FEATURES,
     "valuation":VALUATION_FEATURES,
     "guidance":GUIDANCE_FEATURES,
+    "news":NEWS_FEATURES,
 }
-DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance")
+DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance","news")
 FEATURES=[x for g in DEFAULT_GROUPS for x in FEATURE_GROUPS[g]]
 _PREP_CACHE={}
 
@@ -113,81 +117,64 @@ def _ratio_change(cur,prev):
 
 
 def load_ttm_fundamentals(db):
-    rows=_paged(lambda a,b: db.table("financial_metrics")
-        .select("company_id,period_end,filed_date,revenue,operating_income,net_income,eps_diluted,free_cash_flow,cash,total_debt,shares_outstanding")
-        .eq("period_type","ttm").order("company_id").order("filed_date").range(a,b))
-    by_company={}
-    for r in rows:
-        if r.get("filed_date"):
-            by_company.setdefault(r["company_id"],[]).append(r)
+    # Today's restated financial rows are never projected into old training dates.
+    versions=_paged(lambda a,b: db.table("financial_metric_versions")
+        .select("company_id,period_end,observed_at,provenance,snapshot")
+        .eq("period_type","ttm").order("company_id").order("observed_at").range(a,b))
+    out={}
+    for version in versions:
+        row=version.get("snapshot") or {}
+        if row.get("filed_date"):
+            out.setdefault(version["company_id"],[]).append({**row,"observed_at":version["observed_at"],"_raw_financial":True})
+    return out
 
-    snapshots={}
-    for cid,items in by_company.items():
-        items=sorted(items,key=lambda x:(x["filed_date"],x["period_end"]))
-        built=[]
-        for i,r in enumerate(items):
-            cur_end=date.fromisoformat(r["period_end"])
-            prior_yoy=None
-            prior_snapshot=max((q for q in items[:i] if q["period_end"]<r["period_end"]),
-                               key=lambda q:(q["period_end"],q["filed_date"]),default=None)
-            prior_yoy=max((q for q in items[:i]
-                           if 300<=(cur_end-date.fromisoformat(q["period_end"])).days<=450),
-                          key=lambda q:(q["period_end"],q["filed_date"]),default=None)
 
-            revenue=_num(r.get("revenue")); eps=_num(r.get("eps_diluted"))
-            op=_num(r.get("operating_income")); net=_num(r.get("net_income")); fcf=_num(r.get("free_cash_flow"))
-            debt=_num(r.get("total_debt")); cash=_num(r.get("cash"))
-            prev_rev=_num(prior_yoy.get("revenue")) if prior_yoy else None
-            prev_eps=_num(prior_yoy.get("eps_diluted")) if prior_yoy else None
-            revenue_growth=_ratio_change(revenue,prev_rev)
-            eps_growth=(eps-prev_eps)/abs(prev_eps) if eps is not None and prev_eps not in (None,0) else None
-            op_margin=op/revenue if op is not None and revenue not in (None,0) else None
-            net_margin=net/revenue if net is not None and revenue not in (None,0) else None
-            fcf_margin=fcf/revenue if fcf is not None and revenue not in (None,0) else None
+def observed_fundamental_asof(items,asof):
+    from .observations import available, close_cutoff, member_asof
+    from .financial_ranking import financial_snapshot, factors
+    cutoff=close_cutoff(asof)
+    observed=[r for r in items if available(r,cutoff)]
+    chosen={}
+    for row in observed:
+        previous=chosen.get(row["period_end"])
+        if previous is None or row["observed_at"]>previous["observed_at"]:
+            chosen[row["period_end"]]=row
+    snapshot,error=financial_snapshot(list(chosen.values()),asof,live=False,point_in_time=True)
+    if error:
+        return {k:None for k in FUND_FEATURES}
+    current=snapshot["latest"]; values=factors(snapshot,1.)
+    old=snapshot.get("previous")
+    older=[r for r in chosen.values() if old and 300<=(date.fromisoformat(old["period_end"])-date.fromisoformat(r["period_end"])).days<=450]
+    prior=factors({"latest":old,"previous":max(older,key=lambda r:r["period_end"],default=None)},1.) if old else {}
+    def change(key):
+        a=values.get(key); b=prior.get(key)
+        return a-b if a is not None and b is not None else None
+    return {
+        "_ttm_eps":_num(current.get("eps_diluted")),"_ttm_fcf":_num(current.get("free_cash_flow")),
+        "_shares_outstanding":_num(current.get("shares_outstanding")),
+        "fund_revenue_growth_yoy":values["revenue_growth"],"fund_eps_growth_yoy":values["eps_growth"],
+        "fund_operating_margin":values["operating_margin"],"fund_net_margin":values["net_margin"],
+        "fund_fcf_margin":values["fcf_margin"],"fund_debt_to_fcf":_safe_ratio(current.get("total_debt"),current.get("free_cash_flow")),
+        "fund_cash_to_debt":_safe_ratio(current.get("cash"),current.get("total_debt")),
+        "fund_age_days":(date.fromisoformat(asof)-date.fromisoformat(current["filed_date"])).days,
+        "fund_revenue_growth_accel":change("revenue_growth"),"fund_eps_growth_accel":change("eps_growth"),
+        "fund_operating_margin_delta":change("operating_margin"),"fund_fcf_margin_delta":change("fcf_margin"),
+        "fund_fcf_to_net_income":values["cash_conversion"],"fund_return_on_equity":values["return_on_equity"],
+        "fund_cet1_ratio":values["cet1_ratio"],
+    }
 
-            prev_growth=prev_eps_growth=prev_op_margin=prev_fcf_margin=None
-            if prior_snapshot:
-                ps_end=date.fromisoformat(prior_snapshot["period_end"])
-                ps_yoy=None
-                ps_yoy=max((q for q in items[:i]
-                            if q["filed_date"]<=prior_snapshot["filed_date"]
-                            and 300<=(ps_end-date.fromisoformat(q["period_end"])).days<=450),
-                           key=lambda q:(q["period_end"],q["filed_date"]),default=None)
-                ps_rev=_num(prior_snapshot.get("revenue")); ps_eps=_num(prior_snapshot.get("eps_diluted"))
-                ps_op=_num(prior_snapshot.get("operating_income")); ps_fcf=_num(prior_snapshot.get("free_cash_flow"))
-                py_rev=_num(ps_yoy.get("revenue")) if ps_yoy else None
-                py_eps=_num(ps_yoy.get("eps_diluted")) if ps_yoy else None
-                prev_growth=_ratio_change(ps_rev,py_rev)
-                prev_eps_growth=(ps_eps-py_eps)/abs(py_eps) if ps_eps is not None and py_eps not in (None,0) else None
-                prev_op_margin=ps_op/ps_rev if ps_op is not None and ps_rev not in (None,0) else None
-                prev_fcf_margin=ps_fcf/ps_rev if ps_fcf is not None and ps_rev not in (None,0) else None
 
-            vals={
-                "_ttm_eps":eps,
-                "_ttm_fcf":fcf,
-                "_shares_outstanding":_num(r.get("shares_outstanding")),
-                "fund_revenue_growth_yoy":revenue_growth,
-                "fund_eps_growth_yoy":eps_growth,
-                "fund_operating_margin":op_margin,
-                "fund_net_margin":net_margin,
-                "fund_fcf_margin":fcf_margin,
-                "fund_debt_to_fcf":debt/abs(fcf) if debt is not None and fcf not in (None,0) else None,
-                "fund_cash_to_debt":cash/debt if cash is not None and debt not in (None,0) else None,
-                "fund_revenue_growth_accel":revenue_growth-prev_growth if revenue_growth is not None and prev_growth is not None else None,
-                "fund_eps_growth_accel":eps_growth-prev_eps_growth if eps_growth is not None and prev_eps_growth is not None else None,
-                "fund_operating_margin_delta":op_margin-prev_op_margin if op_margin is not None and prev_op_margin is not None else None,
-                "fund_fcf_margin_delta":fcf_margin-prev_fcf_margin if fcf_margin is not None and prev_fcf_margin is not None else None,
-                "fund_fcf_to_net_income":fcf/net if fcf is not None and net not in (None,0) else None,
-            }
-            built.append({"filed_date":r["filed_date"],"period_end":r["period_end"],"values":vals})
-        snapshots[cid]=built
-    return snapshots
+def _safe_ratio(numerator,denominator):
+    a=_num(numerator); b=_num(denominator)
+    return a/b if a is not None and b is not None and b>0 else None
 
 
 def fundamental_asof(snapshots,cid,asof):
     items=snapshots.get(cid) or []
     if not items:
         return {k:None for k in FUND_FEATURES}
+    if items[0].get("_raw_financial"):
+        return observed_fundamental_asof(items,asof)
     keys=[x["filed_date"] for x in items]
     i=bisect_right(keys,asof)-1
     if i<0:
@@ -234,12 +221,12 @@ def _companies(db):
     return {r["id"]:r for r in rows}
 
 
-def _derived_price_context(rows,companies,include_dates):
+def _derived_price_context(rows,companies,include_dates,eligible=None):
     by_company={}
     by_date={}
     for r in rows:
         by_company.setdefault(r["company_id"],[]).append(r)
-        if r["feature_date"] in include_dates:
+        if r["feature_date"] in include_dates and (eligible is None or eligible(r["company_id"],r["feature_date"])):
             by_date.setdefault(r["feature_date"],[]).append(r)
 
     longmom={}
@@ -336,13 +323,15 @@ def _price_exact(items,d):
 
 
 def load_earnings_features(db,by_company,spy_items):
-    rows=_paged(lambda a,b: db.table("earnings_events")
-        .select("company_id,reported_date,event_time,surprise_percent,revenue_surprise_percent,source")
-        .eq("source","massive_benzinga").order("company_id").order("reported_date").range(a,b))
+    rows=_paged(lambda a,b: db.table("earnings_event_versions")
+        .select("event_id,company_id,observed_at,snapshot")
+        .order("company_id").order("observed_at").range(a,b))
     out={}
     groups={}
-    for r in rows:
-        groups.setdefault(r["company_id"],[]).append(r)
+    for version in rows:
+        r={**version["snapshot"],"observed_at":version["observed_at"],"event_id":version["event_id"]}
+        if r.get("source")=="massive_benzinga":
+            groups.setdefault(r["company_id"],[]).append(r)
 
     for cid,events in groups.items():
         prices=by_company.get(cid) or []
@@ -383,6 +372,7 @@ def load_earnings_features(db,by_company,spy_items):
             available_date=reaction_date if after_close else event_date
             records.append({
                 "available_date":available_date or event_date,
+                "observed_at":e["observed_at"],"event_id":e["event_id"],"reported":e.get("reported_eps") is not None,
                 "reported_date":event_date,
                 "reaction_date":reaction_date,
                 "values":{
@@ -402,12 +392,26 @@ def earnings_asof(events,cid,asof):
     items=events.get(cid) or []
     if not items:
         return {k:None for k in EARNINGS_FEATURES}
-    keys=[x["available_date"] for x in items]
-    i=bisect_right(keys,asof)-1
-    if i<0:
+    latest={}
+    for candidate in items:
+        if candidate["available_date"]>asof or not available(candidate,close_cutoff(asof)):
+            continue
+        key=candidate["event_id"]
+        if key not in latest or candidate["observed_at"]>latest[key]["observed_at"]:
+            latest[key]=candidate
+    known=[x for x in latest.values() if x.get("reported")]
+    if not known:
         return {k:None for k in EARNINGS_FEATURES}
-    item=items[i]
+    ordered=sorted(known,key=lambda x:(x["reported_date"],x["observed_at"]))
+    item=ordered[-1]
     vals=dict(item["values"])
+    streak=0
+    for event in reversed(ordered):
+        eps=event["values"].get("earnings_eps_surprise")
+        if eps is None or eps<=0:
+            break
+        streak+=1
+    vals["earnings_beat_streak"]=float(streak)
     vals["earnings_days_since"]=(date.fromisoformat(asof)-date.fromisoformat(item["reported_date"])).days
     # A close reaction is only known after its reaction trading session.
     if item.get("reaction_date") and asof<item["reaction_date"]:
@@ -418,7 +422,7 @@ def earnings_asof(events,cid,asof):
 
 def load_guidance_features(db):
     rows=_paged(lambda a,b: db.table("corporate_guidance_events")
-        .select("company_id,event_date,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,consensus_eps_at_event,consensus_revenue_at_event,previous_eps_guidance_low,previous_eps_guidance_high,previous_revenue_guidance_low,previous_revenue_guidance_high")
+        .select("company_id,event_date,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,consensus_eps_at_event,consensus_revenue_at_event,previous_eps_guidance_low,previous_eps_guidance_high,previous_revenue_guidance_low,previous_revenue_guidance_high,fiscal_year,fiscal_period,captured_at,published_at,eps_method,revenue_method,source")
         .order("company_id").order("event_date").range(a,b))
     out={}
     for r in rows:
@@ -436,12 +440,12 @@ def load_guidance_features(db):
             prevrev=(_num(r["previous_revenue_guidance_low"])+_num(r["previous_revenue_guidance_high"]))/2
         cons_eps=_num(r.get("consensus_eps_at_event")); cons_rev=_num(r.get("consensus_revenue_at_event"))
         vals={
-            "guidance_eps_gap":eps_mid/abs(cons_eps)-1 if eps_mid is not None and cons_eps not in (None,0) else None,
+            "guidance_eps_gap":(eps_mid-cons_eps)/abs(cons_eps) if eps_mid is not None and cons_eps not in (None,0) else None,
             "guidance_revenue_gap":rev_mid/cons_rev-1 if rev_mid is not None and cons_rev not in (None,0) else None,
-            "guidance_eps_change":eps_mid/abs(peps)-1 if eps_mid is not None and peps not in (None,0) else None,
+            "guidance_eps_change":(eps_mid-peps)/abs(peps) if eps_mid is not None and peps not in (None,0) else None,
             "guidance_revenue_change":rev_mid/prevrev-1 if rev_mid is not None and prevrev not in (None,0) else None,
         }
-        out.setdefault(r["company_id"],[]).append({"event_date":r["event_date"],"values":vals})
+        out.setdefault(r["company_id"],[]).append({"event_date":r["event_date"],"captured_at":r["captured_at"],"published_at":r.get("published_at"),"values":vals,"eps_method":r.get("eps_method"),"source":r.get("source"),"fiscal_year":r.get("fiscal_year"),"fiscal_period":r.get("fiscal_period")})
     return out
 
 
@@ -449,13 +453,43 @@ def guidance_asof(events,cid,asof):
     items=events.get(cid) or []
     if not items:
         return {k:None for k in GUIDANCE_FEATURES}
-    keys=[x["event_date"] for x in items]
-    i=bisect_right(keys,asof)-1
-    if i<0:
+    eligible=[x for x in items if x["event_date"]<=asof and available(x,close_cutoff(asof),observed_key="captured_at")]
+    if not eligible:
         return {k:None for k in GUIDANCE_FEATURES}
-    item=items[i]; vals=dict(item["values"])
+    item=max(eligible,key=lambda x:(x["event_date"],x["captured_at"]))
+    vals={k:None for k in GUIDANCE_FEATURES}
+    # SEC releases store each accounting basis / metric separately. Merge
+    # same-release fields without combining different forecast fiscal periods.
+    peers=[x for x in eligible if x["event_date"]==item["event_date"]
+           and x.get("fiscal_year")==item.get("fiscal_year")
+           and x.get("fiscal_period")==item.get("fiscal_period")]
+    for peer in sorted(peers,key=lambda x:x["captured_at"]):
+        for key,value in peer["values"].items():
+            if key.startswith("guidance_eps") and str(peer.get("eps_method") or "").lower() not in ("gaap","adjusted","non-gaap"):
+                continue
+            if value is not None:
+                vals[key]=value
     vals["guidance_days_since"]=(date.fromisoformat(asof)-date.fromisoformat(item["event_date"])).days
     return vals
+
+
+def load_news_features(db):
+    rows=_paged(lambda a,b:db.table("news_events").select("company_id,published_at,created_at,sentiment")
+                .order("company_id").order("published_at").range(a,b))
+    grouped={}
+    for row in rows:
+        grouped.setdefault(row["company_id"],[]).append(row)
+    return grouped
+
+
+def news_asof(events,cid,asof):
+    from .news import news_summary
+    values=news_summary(events.get(cid,[]),close_cutoff(asof))
+    # Absence of observed articles is missing source coverage, not neutral
+    # sentiment or proof that nothing happened to this company.
+    return {"news_articles_7d":values["articles"] if values["articles"] else None,
+            "news_provider_sentiment_7d":values["mean_provider_sentiment"],
+            "news_sentiment_observations_7d":values["sentiment_observations"] if values["articles"] else None}
 
 
 def _prepare(db,years=5):
@@ -468,14 +502,20 @@ def _prepare(db,years=5):
     if latest_date:
         sampled_dates.add(latest_date)
     companies=_companies(db)
-    context,by_company=_derived_price_context(rows,companies,sampled_dates)
+    memberships=_paged(lambda a,b:db.table("index_memberships")
+                       .select("company_id,effective_from,effective_to,captured_at")
+                       .eq("index_code","SP500").order("id").range(a,b)) if db is not None else []
+    eligible=(lambda cid,day:member_asof(memberships,cid,day)) if db is not None else None
+    context,by_company=_derived_price_context(rows,companies,sampled_dates,eligible)
     spy_id=next((cid for cid,c in companies.items() if c.get("ticker")=="SPY"),None)
     spy_items=by_company.get(spy_id,[]) if spy_id else []
     fund=load_ttm_fundamentals(db)
     earnings=load_earnings_features(db,by_company,spy_items)
     guidance=load_guidance_features(db)
+    news=load_news_features(db) if db is not None else {}
 
-    selected_rows=[r for r in rows if r["feature_date"] in sampled_dates]
+    selected_rows=[r for r in rows if r["feature_date"] in sampled_dates
+                   and (eligible is None or eligible(r["company_id"],r["feature_date"]))]
     feature_dicts={}
     for r in selected_rows:
         cid=r["company_id"]; d=r["feature_date"]
@@ -484,6 +524,7 @@ def _prepare(db,years=5):
         fd.update(earnings_asof(earnings,cid,d))
         fd.update(fundamental_asof(fund,cid,d))
         fd.update(guidance_asof(guidance,cid,d))
+        fd.update(news_asof(news,cid,d))
         eps=_num(fd.get("_ttm_eps")); fcf=_num(fd.get("_ttm_fcf")); shares=_num(fd.get("_shares_outstanding")); close=_num(r.get("close"))
         pe=close/eps if close is not None and eps is not None and eps>0 else None
         market_cap=close*shares if close is not None and shares is not None and shares>0 else None
@@ -521,7 +562,7 @@ def _prepare(db,years=5):
     prepared={
         "rows":selected_rows,"all_dates":all_dates,"latest_date":latest_date,"companies":companies,
         "features":feature_dicts,"fundamental_companies":len(fund),
-        "earnings_companies":len(earnings),"guidance_companies":len(guidance),
+        "earnings_companies":len(earnings),"guidance_companies":len(guidance),"news_companies":len(news),
     }
     _PREP_CACHE.clear(); _PREP_CACHE[cache_key]=prepared
     return prepared
@@ -657,12 +698,22 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
         }
         models[h]=HorizonModel(h,clf,calibrator,reg,diagnostics,feature_names)
 
+    available_dates=sorted({r["feature_date"] for r in price_rows})
+    evaluation_start=available_dates[int(len(available_dates)*.70)] if available_dates else latest_date
     meta={
+        "membership_history_mode":"recorded_observed_intervals",
+        "observed_training_family_dates":{g:len({day for (cid,day),values in prep["features"].items()
+                                              if day<evaluation_start and any(values.get(k) is not None for k in FEATURE_GROUPS[g])})
+                                          for g in ("fundamentals","valuation","earnings","guidance","news")},
         "latest_feature_date":latest_date,"features":feature_names,
         "feature_groups":list(groups or DEFAULT_GROUPS),
         "fundamental_companies":prep["fundamental_companies"],
         "earnings_companies":prep["earnings_companies"],
         "guidance_companies":prep["guidance_companies"],
+        "news_companies":prep.get("news_companies",0),
+        "observed_family_dates":{g:len({day for (cid,day),values in prep["features"].items()
+                                     if any(values.get(k) is not None for k in FEATURE_GROUPS[g])})
+                                  for g in ("fundamentals","valuation","earnings","guidance","news")},
     }
     return models,meta
 

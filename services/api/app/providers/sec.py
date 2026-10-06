@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 import httpx
 from .base import ProviderValue, Provenance
+from .sec_supplemental import CAPITAL_TAGS
 
 class SECProvider:
     BASE_URL="https://data.sec.gov"
@@ -97,7 +98,12 @@ def instance_company_facts(xml,cik,report):
         identifier=context.find("x:entity/x:identifier",ns)
         if identifier is None or (identifier.text or "").lstrip("0")!=str(int(cik)):
             continue
-        if any(el.tag.endswith(("}segment","}scenario")) for el in context.iter()):
+        members=[(el.attrib.get("dimension", ""), el.text or "") for el in context.iter() if el.tag.endswith("}explicitMember")]
+        segmented=any(el.tag.endswith(("}segment","}scenario")) for el in context.iter())
+        # Capital calculation approach is not a business segment. Accept only
+        # the Standardized approach and never a subsidiary or other dimension.
+        capital_only=bool(members) and all("Capital" in axis and "Standardized" in member for axis,member in members)
+        if segmented and not capital_only:
             continue
         period=context.find("x:period",ns)
         if period is None:
@@ -105,10 +111,10 @@ def instance_company_facts(xml,cik,report):
         start=period.findtext("x:startDate",namespaces=ns)
         end=period.findtext("x:endDate",namespaces=ns) or period.findtext("x:instant",namespaces=ns)
         if end:
-            contexts[context.attrib["id"]]={"start":start,"end":end}
+            contexts[context.attrib["id"]]={"start":start,"end":end,"_capital_only":capital_only}
     for unit in root.findall("x:unit",ns):
         measures=[(x.text or "").split(":")[-1] for x in unit.findall("x:measure",ns)]
-        if len(measures)==1 and measures[0] in ("USD","shares"):
+        if len(measures)==1 and measures[0] in ("USD","shares","pure"):
             units[unit.attrib["id"]]=measures[0]
         elif (unit.findtext("x:divide/x:unitNumerator/x:measure",namespaces=ns) or "").split(":")[-1]=="USD" and (unit.findtext("x:divide/x:unitDenominator/x:measure",namespaces=ns) or "").split(":")[-1]=="shares":
             units[unit.attrib["id"]]="USD/shares"
@@ -119,6 +125,11 @@ def instance_company_facts(xml,cik,report):
             continue
         uri,tag=el.tag[1:].split("}",1)
         namespace="us-gaap" if "/us-gaap/" in uri else "dei" if "/dei/" in uri else None
+        capital_tag=any(tag in aliases for aliases in CAPITAL_TAGS.values())
+        if capital_tag and unit=="pure":
+            namespace="bank-capital" if namespace is None else namespace
+        if context.get("_capital_only") and not capital_tag:
+            continue
         if namespace is None:
             continue
         try:
@@ -127,7 +138,10 @@ def instance_company_facts(xml,cik,report):
             continue
         if not math.isfinite(value):
             continue
-        row={**context,"val":value,"filed":report["filed_date"],"form":report["form"],"accn":report["accession_number"]}
+        row={k:v for k,v in context.items() if not k.startswith("_")}
+        row.update(val=value,filed=report["filed_date"],form=report["form"],accn=report["accession_number"])
+        if context.get("_capital_only"):
+            row["capital_basis"]="standardized_consolidated"
         facts.setdefault(namespace,{}).setdefault(tag,{"units":{}})["units"].setdefault(unit,[]).append(row)
     if not facts:
         raise RuntimeError("Filing instance contains no supported consolidated standard facts")
@@ -160,11 +174,25 @@ def reported_debt(rec):
     noncurrent=rec.get("debt_noncurrent")
     if current is not None and noncurrent is not None:
         return float(current)+float(noncurrent)
+    if rec.get("debt_total") is not None and rec.get("debt_short_term") is not None:
+        return float(rec["debt_total"])+float(rec["debt_short_term"])
+    if rec.get("debt_current") is not None and noncurrent is not None and rec.get("debt_short_term") is not None:
+        return float(rec["debt_current"])+float(noncurrent)+float(rec["debt_short_term"])
     if rec.get("debt_total") is not None:
         return rec["debt_total"]
     if rec.get("debt_current") is not None and noncurrent is not None:
         return float(rec["debt_current"])+float(noncurrent)
     return None
+
+
+def debt_basis(rec):
+    if rec.get("debt_all_current") is not None and rec.get("debt_noncurrent") is not None:
+        return "reported_current_plus_noncurrent"
+    if rec.get("debt_short_term") is not None and rec.get("debt_total") is not None:
+        return "reported_long_term_total_plus_short_term_borrowings"
+    if rec.get("debt_short_term") is not None and rec.get("debt_current") is not None and rec.get("debt_noncurrent") is not None:
+        return "reported_current_maturities_plus_noncurrent_plus_short_term"
+    return "long_term_debt_proxy" if reported_debt(rec) is not None else "unknown"
 
 def facts_by_period(data: dict, years: int = 10):
     facts = (data.get("facts") or {}).get("us-gaap") or {}
@@ -179,7 +207,7 @@ def facts_by_period(data: dict, years: int = 10):
         ],
         "operating_income": ["OperatingIncomeLoss"],
         "net_income": ["NetIncomeLoss", "ProfitLoss"],
-        "eps_diluted": ["EarningsPerShareDiluted"],
+        "eps_diluted": ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
         "operating_cash_flow": ["NetCashProvidedByUsedInOperatingActivities"],
         "capex": [
             "PaymentsToAcquirePropertyPlantAndEquipment",
@@ -196,12 +224,13 @@ def facts_by_period(data: dict, years: int = 10):
             "LongTermDebtCurrent",
         ],
         "debt_all_current": ["DebtCurrent"],
+        "debt_short_term": ["ShortTermBorrowings", "ShortTermDebt"],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
             "LongTermDebtAndCapitalLeaseObligations",
             "LongTermDebtNoncurrent",
         ],
-        "debt_total": ["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
+        "debt_total": ["LongTermDebtCurrentAndNoncurrent", "LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
     }
     units = {"eps_diluted": ["USD/shares"]}
     duration_keys = {"revenue", "operating_income", "net_income", "eps_diluted", "operating_cash_flow", "capex"}
@@ -245,6 +274,7 @@ def facts_by_period(data: dict, years: int = 10):
 
     for rec in out.values():
         rec["total_debt"] = reported_debt(rec)
+        rec["reported_debt_basis"] = debt_basis(rec)
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):
@@ -278,7 +308,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
         ],
         "operating_income": ["OperatingIncomeLoss"],
         "net_income": ["NetIncomeLoss", "ProfitLoss"],
-        "eps_diluted": ["EarningsPerShareDiluted"],
+        "eps_diluted": ["EarningsPerShareDiluted", "EarningsPerShareBasicAndDiluted"],
         "operating_cash_flow": ["NetCashProvidedByUsedInOperatingActivities"],
         "capex": [
             "PaymentsToAcquirePropertyPlantAndEquipment",
@@ -295,12 +325,13 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             "LongTermDebtCurrent",
         ],
         "debt_all_current": ["DebtCurrent"],
+        "debt_short_term": ["ShortTermBorrowings", "ShortTermDebt"],
         "debt_noncurrent": [
             "LongTermDebtAndFinanceLeaseObligationsNoncurrent",
             "LongTermDebtAndCapitalLeaseObligations",
             "LongTermDebtNoncurrent",
         ],
-        "debt_total": ["LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
+        "debt_total": ["LongTermDebtCurrentAndNoncurrent", "LongTermDebtAndFinanceLeaseObligations", "LongTermDebt"],
     }
     units = {"eps_diluted": ["USD/shares"]}
     duration_keys = {"revenue", "operating_income", "net_income", "eps_diluted", "operating_cash_flow", "capex"}
@@ -385,6 +416,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
 
     for rec in out.values():
         rec["total_debt"] = reported_debt(rec)
+        rec["reported_debt_basis"] = debt_basis(rec)
         ocf, capex = rec.get("operating_cash_flow"), rec.get("capex")
         rec["free_cash_flow"] = None if ocf is None or capex is None else float(ocf) - abs(float(capex))
         for k in list(rec):

@@ -2,6 +2,8 @@
 
 AI-assisted S&P 500 research platform.
 
+For a smaller Supabase database with full historical research kept on the API computer, see [local market history setup](docs/local-market-history.md).
+
 ## MVP
 - Web dashboard for market overview and research candidates
 - S&P 500 company research pages

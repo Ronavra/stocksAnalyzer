@@ -160,15 +160,15 @@ def factors(snapshot,price):
     old_equity=number((prev.get("supplemental") or {}).get("equity",{}).get("value"))
     average_equity=(equity+old_equity)/2 if equity is not None and old_equity is not None and equity>0 and old_equity>0 else None
     return {
-        "revenue_growth":rev/old_rev-1 if old_rev is not None and old_rev>0 else None,
-        "eps_growth":(eps-old_eps)/abs(old_eps) if old_eps not in (None,0) else None,
+        "revenue_growth":rev/old_rev-1 if rev is not None and old_rev is not None and old_rev>0 else None,
+        "eps_growth":(eps-old_eps)/abs(old_eps) if eps is not None and old_eps not in (None,0) else None,
         "operating_margin":op_margin,"net_margin":net_margin,
         "operating_margin_change":op_margin-old_op if op_margin is not None and old_op is not None else None,
         "net_margin_change":net_margin-old_net if net_margin is not None and old_net is not None else None,
         "fcf_margin":ratio(fcf,rev),"cash_conversion":ratio(fcf,cur.get("net_income")),
         "net_debt_to_fcf":(debt-cash)/fcf if debt is not None and cash is not None and fcf is not None and fcf>0 else None,
         # Negative EPS is a negative yield, never a cheap negative P/E.
-        "earnings_yield":eps/price,"fcf_yield":ratio(fcf,market_cap),
+        "earnings_yield":ratio(eps,price),"fcf_yield":ratio(fcf,market_cap),
         "return_on_equity":ratio(cur.get("net_income"),average_equity),
         "cet1_ratio":number((cur.get("supplemental") or {}).get("cet1_ratio",{}).get("value")),
     }

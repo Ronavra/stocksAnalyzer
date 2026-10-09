@@ -49,6 +49,8 @@ def test_prepare_sector_valuation_uses_sampled_dates(monkeypatch):
     for day in (dates[0],dates[5],dates[6]):
         assert prepared["features"][(1,day)]["valuation_pe_vs_sector"]==pytest.approx(-1/3)
         assert prepared["features"][(2,day)]["valuation_fcf_yield_vs_sector"]==pytest.approx(-0.025)
+    monkeypatch.setattr(model,"load_price_rows",lambda *args:pytest.fail("Prepared snapshot must avoid another multi-year download"))
+    assert model._prepare(None) is prepared
 
 
 def test_validation_gate_requires_two_recorded_horizons():

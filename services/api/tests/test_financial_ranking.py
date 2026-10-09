@@ -91,6 +91,15 @@ def test_financial_sector_does_not_require_industrial_cashflow_or_debt():
     assert "fcf_yield" not in scored[10]["factors"]
 
 
+def test_sparse_historical_snapshot_preserves_missing_growth_and_yield():
+    snapshot={"latest":{"revenue":None,"eps_diluted":None},
+              "previous":{"revenue":100,"eps_diluted":1}}
+    values=finance.factors(snapshot,10)
+    assert values["revenue_growth"] is None
+    assert values["eps_growth"] is None
+    assert values["earnings_yield"] is None
+
+
 def test_small_peer_group_does_not_get_artificially_high_percentiles():
     inputs,rows=inputs_and_candidates(count=4)
     scored,rejected=finance.financial_scores(rows,inputs,ASOF,now=NOW)

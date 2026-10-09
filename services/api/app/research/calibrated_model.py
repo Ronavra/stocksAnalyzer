@@ -493,10 +493,12 @@ def news_asof(events,cid,asof):
 
 
 def _prepare(db,years=5):
-    rows,latest_date=load_price_rows(db,years)
-    cache_key=(latest_date,years,len(rows))
+    # One immutable input snapshot per client/process and lookback. Check BEFORE
+    # downloading multi-year prices so feature variants and forecasts reuse it.
+    cache_key=(db,years)
     if cache_key in _PREP_CACHE:
         return _PREP_CACHE[cache_key]
+    rows,latest_date=load_price_rows(db,years)
     all_dates=sorted({r["feature_date"] for r in rows})
     sampled_dates={d for i,d in enumerate(all_dates) if i%5==0}
     if latest_date:

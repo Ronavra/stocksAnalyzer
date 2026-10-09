@@ -8,7 +8,7 @@ API_DIR=HERE.parent
 sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
-from validate_daily_cycle import validate
+from scripts.validate_daily_cycle import validate
 
 PY=sys.executable
 
@@ -27,11 +27,15 @@ if __name__=="__main__":
         sys.exit(0)
     run_id=claim["id"]
     timings={}
+    check=None
     try:
+        timings["membership_sync_seconds"]=run("sync_sp500.py")
         timings["ingest_prices_seconds"]=run("ingest_prices.py","--all","--daily-credit-budget",os.getenv("PRICE_CREDIT_BUDGET","550"))
         price_check=validate(db)
+        check=price_check
         if price_check["missing_prices"] or price_check["universe_companies"] < 500:
-            raise RuntimeError("Price ingestion incomplete for {}: {} companies; aborting before features/scan".format(price_check["expected_market_date"], price_check["price_companies"]))
+            raise RuntimeError("Price ingestion incomplete for {}: {}/{} companies; missing_prices={}; aborting before features/scan".format(
+                price_check["expected_market_date"],price_check["price_companies"],price_check["universe_companies"],price_check["missing_prices"]))
         timings["features_seconds"]=run("build_daily_price_features.py")
         quality=db.rpc("price_session_quality",{"p_since":(datetime.now(timezone.utc).date()-timedelta(days=29)).isoformat()}).execute().data or {}
         if quality.get("incorrect_labels",0):
@@ -51,7 +55,10 @@ if __name__=="__main__":
         print(f"\nDaily market refresh validated successfully. timings={timings}")
     except Exception as exc:
         if run_id:
+            details={key:check.get(key) for key in ("expected_market_date","latest_price_date","latest_feature_date",
+                "price_companies","feature_companies")} if check else {}
             db.table("pipeline_runs").update({"finished_at":datetime.now(timezone.utc).isoformat(),"status":"error",
-                "error_message":str(exc)[:2000],"metadata":{"timings":timings}}).eq("id",run_id).execute()
+                "error_message":str(exc)[:2000],**details,"metadata":{"timings":timings,
+                    "freshness":check}}).eq("id",run_id).execute()
         traceback.print_exc()
         raise

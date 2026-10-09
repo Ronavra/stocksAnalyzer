@@ -21,6 +21,10 @@ from app.db.client import get_supabase
 
 SOURCE = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
 
+# Issuer-confirmed symbol change; never infer a rename from a missing price.
+SYMBOL_CHANGES = [{"old":"PSKY","new":"SKYD","cik":"2041610","effective":"2026-10-06",
+    "source_url":"https://www.sec.gov/Archives/edgar/data/2041610/000110465926113913/tm2626659d7_8k.htm"}]
+
 
 def normalize_ticker(ticker):
     return str(ticker or "").strip().upper().replace(".", "-")
@@ -39,6 +43,11 @@ def parse_constituents(csv_text, current_tickers=()):
                              "sector": row.get("GICS Sector"),
                              "industry": row.get("GICS Sub-Industry"),
                              "is_sp500": True, "active": True}
+        cik=str(row.get("CIK") or "").strip()
+        if cik:
+            if not cik.isdigit():
+                raise ValueError(f"Invalid CIK for {ticker}")
+            companies[ticker]["cik"]=str(int(cik))
     if not 490 <= len(companies) <= 550:
         raise ValueError(f"Unexpected constituent count: {len(companies)}")
     current = set(current_tickers)
@@ -49,8 +58,22 @@ def parse_constituents(csv_text, current_tickers=()):
 
 def sync(db, csv_text, observed_at):
     today = observed_at.date().isoformat()
-    current = db.table("companies").select("id,ticker").eq("is_sp500", True).execute().data or []
+    current = db.table("companies").select("id,ticker,name,sector,industry,cik,is_sp500,active").eq("is_sp500", True).execute().data or []
     constituents = parse_constituents(csv_text, [c["ticker"] for c in current])
+    current_by_ticker={c["ticker"]:c for c in current}
+    for change in SYMBOL_CHANGES:
+        old=current_by_ticker.get(change["old"])
+        new=constituents.get(change["new"])
+        if old and new and change["old"] not in constituents and today>=change["effective"]:
+            if str(old.get("cik") or "").lstrip("0")!=change["cik"] or new.get("cik")!=change["cik"]:
+                raise ValueError("Confirmed symbol change does not match issuer CIK")
+            collision=db.table("companies").select("id").eq("ticker",change["new"]).execute().data or []
+            if collision:
+                raise ValueError("Symbol change requires explicit recovery of duplicate issuer records")
+            db.table("companies").update(new).eq("id",old["id"]).execute()
+            old.update(new)
+            current_by_ticker.pop(change["old"])
+            current_by_ticker[change["new"]]=old
     open_rows = (db.table("index_memberships")
                  .select("id,company_id,effective_from")
                  .eq("index_code", "SP500").is_("effective_to", "null").execute().data or [])
@@ -59,7 +82,9 @@ def sync(db, csv_text, observed_at):
     active_ids = set()
     added = 0
     for payload in constituents.values():
-        saved = db.table("companies").upsert(payload, on_conflict="ticker").execute().data or []
+        old=current_by_ticker.get(payload["ticker"])
+        saved = [old] if old and all(old.get(k)==v for k,v in payload.items()) else (
+            db.table("companies").upsert(payload, on_conflict="ticker").execute().data or [])
         if not saved:
             raise RuntimeError(f"Company upsert returned no id for {payload['ticker']}")
         cid = saved[0]["id"]
@@ -80,7 +105,11 @@ def sync(db, csv_text, observed_at):
             removed += 1
     for company in current:
         if company["id"] not in active_ids:
-            db.table("companies").update({"is_sp500": False}).eq("id", company["id"]).execute()
+            patch={"is_sp500":False}
+            # Confirmed cash acquisition, not an assumption about missing bars.
+            if company["ticker"]=="WBD" and str(company.get("cik") or "").lstrip("0")=="1437107" and today>="2026-10-06":
+                patch["active"]=False
+            db.table("companies").update(patch).eq("id", company["id"]).execute()
     print(f"S&P 500 observed {today}: active={len(active_ids)} added={added} removed={removed}")
     return {"active": len(active_ids), "added": added, "removed": removed}
 

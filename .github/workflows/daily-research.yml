@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: "0 8 * * *"
       timezone: "Asia/Jerusalem"
+  push:
+    branches: [main]
+    paths:
+      - "services/api/scripts/run_daily_cycle.py"
+      - "services/api/scripts/sync_sp500.py"
+      - ".github/workflows/daily-research.yml"
 
 concurrency:
   group: stocks-analyzer-market-data

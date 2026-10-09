@@ -221,6 +221,15 @@ def test_malformed_uri_and_quoted_password_values_are_redacted(monkeypatch):
     assert "different secret" not in result and "another-secret" not in result
 
 
+def test_unencoded_password_fragment_in_dns_hostname_is_redacted(monkeypatch):
+    monkeypatch.setenv("SUPABASE_DB_URL","postgresql://postgres.example:prefix@private-fragment@pooler.supabase.com:5432/postgres")
+    error=RuntimeError("failed to resolve host 'private-fragment@pooler.supabase.com': getaddrinfo failed")
+    result=safe_error(error)
+    assert "private-fragment" not in result
+    assert "failed to resolve host" in result and "getaddrinfo failed" in result
+    assert "Percent-encode" in error_hint(error)
+
+
 @pytest.mark.parametrize("reason,expected",[
     ("password authentication failed for user postgres", "database password"),
     ("Tenant or user not found", "postgres.PROJECT-REF"),

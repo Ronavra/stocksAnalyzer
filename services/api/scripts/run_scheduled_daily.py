@@ -11,6 +11,17 @@ from app.db.client import get_supabase
 from scripts.daily_run_gate import should_run
 
 
+def run_script(name,args=(),*,required=True):
+    try:
+        subprocess.run([sys.executable,str(API_DIR/"scripts"/name),*args],check=True,cwd=API_DIR)
+    except subprocess.CalledProcessError:
+        if required:
+            raise
+        print(f"WARNING: Optional source step {name} failed. Its pipeline report retains the error; coverage remains incomplete.",file=sys.stderr,flush=True)
+        return False
+    return True
+
+
 def main():
     if os.getenv("LOCAL_MARKET_ARCHIVE") and os.getenv("LOCAL_MARKET_ARCHIVE_BACKUP"):
         # Runs even when GitHub completed the market refresh first, or the Data
@@ -22,13 +33,24 @@ def main():
         print("Daily refresh already completed or active; checking Sunday's publication.")
         subprocess.run([sys.executable,str(API_DIR/"scripts"/"run_weekly_cycle.py")],check=True,cwd=API_DIR)
         return
-    commands=[("run_daily_cycle.py",[]),("refresh_research_sources.py",["--earnings-only"])]
+    run_script("run_daily_cycle.py")
+    run_script("refresh_research_sources.py",["--earnings-only"])
+    incomplete=[]
     if os.getenv("SEC_USER_AGENT"):
-        commands.append(("refresh_research_sources.py",["--sec-only"]))
-    commands.extend([("refresh_analyst_consensus.py",["--max-age-hours","24"]),
-                     ("run_weekly_cycle.py",[]),("refresh_enrichment.py",[])])
-    for name,args in commands:
-        subprocess.run([sys.executable,str(API_DIR/"scripts"/name),*args],check=True,cwd=API_DIR)
+        if not run_script("refresh_research_sources.py",["--sec-only"],required=False):
+            incomplete.append("SEC fundamentals/valuation")
+    else:
+        incomplete.append("SEC fundamentals/valuation (SEC_USER_AGENT missing)")
+    if not run_script("refresh_analyst_consensus.py",["--max-age-hours","24"],required=False):
+        incomplete.append("analyst consensus")
+    # Publication still applies its own market/financial freshness gates. A
+    # publication failure is required and must not be reported as daily success.
+    run_script("run_weekly_cycle.py")
+    if not run_script("refresh_enrichment.py",required=False):
+        incomplete.append("news/management guidance")
+    print("Daily market and earnings refresh completed.",flush=True)
+    if incomplete:
+        print("WARNING: Optional coverage incomplete: "+"; ".join(incomplete),file=sys.stderr,flush=True)
 
 
 if __name__=="__main__":

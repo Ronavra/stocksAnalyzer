@@ -32,6 +32,14 @@ The computer must be on and the account signed in for these tasks. Supabase Data
 
 ## Export only / ongoing maintenance
 
+If migration stops, the script reports its stage and a password-redacted server/network error. First check the connection without creating an archive or changing cloud data:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\archive_market_history.py --check-connection
+```
+
+The check verifies connection and read access to both market tables. Authentication, pooler identity, DNS, IPv6 and timeout errors include specific guidance. Do not send the `.env` file or the connection URI when reporting the result.
+
 To inspect a migration without deleting cloud rows:
 
 ```powershell

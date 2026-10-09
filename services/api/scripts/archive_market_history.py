@@ -37,8 +37,14 @@ def safe_error(exc):
     if dsn:
         try:
             from psycopg.conninfo import conninfo_to_dict
-            password=conninfo_to_dict(dsn).get("password","")
+            parts=conninfo_to_dict(dsn)
+            password=parts.get("password","")
             secrets.extend((password,quote(password,safe=""),quote_plus(password)))
+            # libpq splits an unencoded password at its first @. The remaining
+            # password can then appear inside the hostname in a DNS error.
+            host=parts.get("host","")
+            if "@" in host:
+                secrets.append(host)
         except Exception: pass
     for secret in sorted(set(secrets),key=len,reverse=True):
         if secret: message=message.replace(secret,"[redacted]")
@@ -56,6 +62,13 @@ def error_hint(exc):
     if "network is unreachable" in message or "no route to host" in message:
         return "Use Dashboard > Connect > Session pooler on port 5432; a direct IPv6 connection may be unreachable from this computer."
     if "could not translate host name" in message or "name or service not known" in message or "getaddrinfo" in message:
+        try:
+            from psycopg.conninfo import conninfo_to_dict
+            host=conninfo_to_dict(os.getenv("SUPABASE_DB_URL","")).get("host","")
+        except Exception:
+            host=""
+        if "@" in host:
+            return "The connection URI has a malformed hostname. Percent-encode reserved characters in the password only; copy the Session pooler host and username from Dashboard > Connect."
         return "Check the pooler hostname in SUPABASE_DB_URL and this computer's DNS/network connection."
     if "timeout" in message or "timed out" in message or "connection refused" in message:
         return "Check the Session pooler host/port 5432 and network access to it. The --check-connection command makes no archive or cloud-data changes."

@@ -30,6 +30,8 @@ The script installs pinned archive dependencies, exports/verifies both copies, p
 
 The computer must be on and the account signed in for these tasks. Supabase Data API access must also be restored for daily research/publication; the Postgres migration may remain blocked by database/network/account restrictions. Billing-period usage averages can keep a size restriction active even after the physical database has shrunk.
 
+The Windows daily task requires successful archive maintenance, market refresh and earnings collection. SEC, analyst consensus and news/guidance failures are reported as incomplete optional coverage and do not independently fail the task, matching the hosted daily workflow. Sunday publication retains its existing market and financial freshness checks; a blocked publication still fails explicitly. A completed daily task therefore does not establish complete fundamentals or enrichment coverage.
+
 ## Export only / ongoing maintenance
 
 If migration stops, the script reports its stage and a password-redacted server/network error. First check the connection without creating an archive or changing cloud data:

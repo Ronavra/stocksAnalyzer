@@ -7,7 +7,7 @@ import pytest
 
 from app.db.market_history import (MarketArchive,HistoryClient,cutoff_for,
                                   configure_history_client,require_full_history)
-from scripts.archive_market_history import prune,connection
+from scripts.archive_market_history import prune,connection,safe_error,error_hint
 
 POLICY={"enabled":True,"id":1,"price_days":400,"feature_days":1100}
 
@@ -200,3 +200,58 @@ def test_migration_requires_local_connection_without_exposing_a_password(monkeyp
     monkeypatch.setenv("SUPABASE_DB_URL","postgresql://postgres.wrong:secret@pooler.supabase.com:5432/postgres")
     with pytest.raises(RuntimeError,match="same project") as error: connection()
     assert "secret" not in str(error.value)
+
+
+def test_error_keeps_authentication_reason_but_redacts_raw_and_encoded_secrets(monkeypatch):
+    password="p@ss:word/#"
+    encoded="p%40ss%3Aword%2F%23"
+    uri=f"postgresql://postgres.example:{encoded}@pooler.supabase.com:5432/postgres"
+    monkeypatch.setenv("SUPABASE_DB_URL",uri)
+    message=f"password authentication failed for user postgres.example: uri={uri} raw={password} encoded={encoded}"
+    result=safe_error(RuntimeError(message))
+    assert "password authentication failed" in result
+    assert password not in result and encoded not in result and uri not in result
+
+
+def test_malformed_uri_and_quoted_password_values_are_redacted(monkeypatch):
+    uri="postgresql://postgres.example:unencoded password@host:5432/postgres"
+    monkeypatch.setenv("SUPABASE_DB_URL",uri)
+    result=safe_error(RuntimeError(f"failed {uri}; password='different secret'; pwd=another-secret"))
+    assert "unencoded password" not in result
+    assert "different secret" not in result and "another-secret" not in result
+
+
+@pytest.mark.parametrize("reason,expected",[
+    ("password authentication failed for user postgres", "database password"),
+    ("Tenant or user not found", "postgres.PROJECT-REF"),
+    ("Network is unreachable", "IPv6"),
+    ("could not translate host name", "DNS"),
+    ("connection timeout expired", "port 5432"),
+])
+def test_connection_errors_include_specific_next_steps(reason,expected):
+    assert expected in error_hint(RuntimeError(reason))
+
+
+def test_placeholder_password_is_rejected_before_connecting(monkeypatch):
+    monkeypatch.setenv("SUPABASE_DB_URL","postgresql://postgres.example:[YOUR-PASSWORD]@host:5432/postgres")
+    with pytest.raises(RuntimeError,match="Replace"):
+        connection()
+
+
+def test_connection_check_never_creates_archive_or_runs_migration(monkeypatch,tmp_path,capsys):
+    from scripts import archive_market_history as script
+    executed=[]
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def execute(self,query): executed.append(query if isinstance(query,str) else query.as_string())
+    monkeypatch.setattr(script,"connection",lambda:Conn())
+    monkeypatch.setattr(script,"MarketArchive",lambda *a,**k:pytest.fail("Connection check must not open/create an archive"))
+    monkeypatch.setattr(script,"export",lambda *a,**k:pytest.fail("Connection check must not export"))
+    monkeypatch.setattr(script,"prune",lambda *a,**k:pytest.fail("Connection check must not delete"))
+    monkeypatch.setattr("sys.argv",["archive_market_history.py","--check-connection","--archive",str(tmp_path/"unused.sqlite3")])
+    script.main()
+    assert "No archive or cloud-data changes" in capsys.readouterr().out
+    assert len(executed)==4
+    assert all(sql.startswith(("SET TRANSACTION READ ONLY","SELECT")) for sql in executed)
+    assert not (tmp_path/"unused.sqlite3").exists()

@@ -7,16 +7,59 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from contextlib import closing
 from datetime import datetime,timezone
 from pathlib import Path
+from urllib.parse import quote,quote_plus
 
 from dotenv import load_dotenv,set_key
 
 API_DIR=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/".env")
 from app.db.market_history import MarketArchive,TABLE_DATES,DEFAULT_DAYS,cutoff_for,project_ref
+
+CURRENT_STAGE="startup"
+
+
+def progress(stage):
+    global CURRENT_STAGE
+    CURRENT_STAGE=stage
+    print(f"Archive migration: {stage}",flush=True)
+
+
+def safe_error(exc):
+    """Keep the server/network reason without echoing credentials from libpq."""
+    message=str(exc)
+    dsn=os.getenv("SUPABASE_DB_URL","")
+    secrets=[dsn,os.getenv("PGPASSWORD",""),os.getenv("SUPABASE_SERVICE_ROLE_KEY","")]
+    if dsn:
+        try:
+            from psycopg.conninfo import conninfo_to_dict
+            password=conninfo_to_dict(dsn).get("password","")
+            secrets.extend((password,quote(password,safe=""),quote_plus(password)))
+        except Exception: pass
+    for secret in sorted(set(secrets),key=len,reverse=True):
+        if secret: message=message.replace(secret,"[redacted]")
+    message=re.sub(r"postgres(?:ql)?://[^\s]+","[redacted connection string]",message,flags=re.I)
+    message=re.sub(r"\b(password|passwd|pwd)\s*=\s*(?:'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|[^\s,;]+)",r"\1=[redacted]",message,flags=re.I)
+    return message[:2000]
+
+
+def error_hint(exc):
+    message=str(exc).lower(); code=getattr(exc,"sqlstate",None)
+    if code=="28P01" or "password authentication failed" in message or "sasl authentication failed" in message:
+        return "Use the database password in SUPABASE_DB_URL. Percent-encode reserved password characters; the Supabase account login password is different."
+    if "tenant or user not found" in message:
+        return "Copy the complete Session pooler URI again, including its host and postgres.PROJECT-REF username."
+    if "network is unreachable" in message or "no route to host" in message:
+        return "Use Dashboard > Connect > Session pooler on port 5432; a direct IPv6 connection may be unreachable from this computer."
+    if "could not translate host name" in message or "name or service not known" in message or "getaddrinfo" in message:
+        return "Check the pooler hostname in SUPABASE_DB_URL and this computer's DNS/network connection."
+    if "timeout" in message or "timed out" in message or "connection refused" in message:
+        return "Check the Session pooler host/port 5432 and network access to it. The --check-connection command makes no archive or cloud-data changes."
+    return "Run archive_market_history.py --check-connection to isolate connection/access problems. Keep existing archive files."
 
 
 def connection():
@@ -25,6 +68,8 @@ def connection():
     url=os.getenv("SUPABASE_DB_URL")
     if not url:
         raise RuntimeError("Set SUPABASE_DB_URL in services/api/.env using Dashboard > Connect > Session pooler. Keep the password out of chat.")
+    if "[YOUR-PASSWORD]" in url:
+        raise RuntimeError("Replace [YOUR-PASSWORD] in SUPABASE_DB_URL with the actual database password locally")
     ref=project_ref(os.environ.get("SUPABASE_URL",""))
     try: parts=conninfo_to_dict(url)
     except Exception: raise RuntimeError("Invalid SUPABASE_DB_URL; copy the Postgres URI from Dashboard > Connect") from None
@@ -36,8 +81,12 @@ def connection():
     conn=psycopg.connect(url,sslmode="require",connect_timeout=15,prepare_threshold=None)
     # Supabase documents a session-only write override for reducing oversized DBs.
     # This does not change the global read-only setting or the Data API quota.
-    conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE")
-    conn.commit()
+    try:
+        conn.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE")
+        conn.commit()
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
@@ -138,7 +187,20 @@ def main():
     parser.add_argument("--maintain",action="store_true",help="Export only rows now expiring; requires an existing verified full export")
     parser.add_argument("--compact",action="store_true",help="Reclaim table/index space after pruning; briefly locks tables")
     parser.add_argument("--configure",action="store_true",help="Save archive/backup paths to this computer's .env after success")
+    parser.add_argument("--check-connection",action="store_true",help="Check connection and read access only; no archive files, data deletion or schema changes")
     args=parser.parse_args()
+    if args.check_connection:
+        if args.prune or args.compact or args.configure or args.maintain:
+            parser.error("--check-connection cannot be combined with migration actions")
+        progress("database connection check")
+        with connection() as conn:
+            from psycopg import sql
+            conn.execute("SET TRANSACTION READ ONLY")
+            conn.execute("SELECT 1")
+            for table in TABLE_DATES:
+                conn.execute(sql.SQL("SELECT 1 FROM public.{} LIMIT 1").format(sql.Identifier(table)))
+        print("Connection and read access to both market-history tables succeeded. No archive or cloud-data changes were made.")
+        return
     if args.prune and not args.backup: parser.error("--prune requires --backup (a second file, preferably another disk)")
     if args.compact and not args.prune: parser.error("--compact requires --prune")
     ref=project_ref(os.environ.get("SUPABASE_URL",""))
@@ -148,26 +210,35 @@ def main():
     if previous and previous!=ref: raise RuntimeError("Archive belongs to another project")
     archive.set_metadata("project_ref",ref)
     policy={"price_days":DEFAULT_DAYS["price_history"],"feature_days":DEFAULT_DAYS["price_features"]}
+    progress("database connection")
     with connection() as conn:
+        progress("history export")
         report=export(conn,archive,policy,full=not args.maintain)
+        progress("archive verification")
         fingerprint=archive.fingerprint()
         if not args.maintain and any(not fingerprint["counts"][t] for t in TABLE_DATES):
             raise RuntimeError("Full export must contain both history tables")
         archive.set_metadata("verified_export",{**fingerprint,"verified_at":datetime.now(timezone.utc).isoformat()})
-        if args.backup: archive.backup_verified(args.backup)
+        if args.backup:
+            progress("backup verification")
+            archive.backup_verified(args.backup)
         if args.prune:
             # DDL only after the export and independent copy are verified.
             if not args.maintain:
+                progress("retention schema installation")
                 conn.execute((API_DIR/"sql/local_market_history.sql").read_text())
                 conn.commit()
+            progress("verified cloud pruning")
             report["pruned"]=prune(conn,archive,args.backup,policy)
             if args.compact:
+                progress("database compaction")
                 try:
                     compact(conn)
                     report["compaction"]="success"
-                except Exception:
+                except Exception as exc:
                     conn.rollback()
-                    report["compaction"]="not completed; archived data is safe. Pause other jobs and rerun --maintain --prune --compact."
+                    report["compaction"]="not completed; archived data is safe. Pause other jobs and rerun --maintain --prune --compact. Reason: "+safe_error(exc)
+        progress("remaining database size check")
         report["database_bytes"]=conn.execute("SELECT pg_database_size(current_database())").fetchone()[0]
         conn.commit()
     if args.configure:
@@ -184,9 +255,7 @@ def main():
 if __name__=="__main__":
     try: main()
     except Exception as exc:
-        # libpq errors may contain usernames/hosts. Never print the connection string.
-        if isinstance(exc,(RuntimeError,ValueError,KeyError)):
-            print(str(exc),file=sys.stderr)
-        else:
-            print(f"Archive migration stopped ({type(exc).__name__}). Check connection permissions, disk space and database restrictions. Cloud pruning is transaction-protected.",file=sys.stderr)
+        print(f"Archive migration stopped during {CURRENT_STAGE} ({type(exc).__name__}).",file=sys.stderr)
+        print(safe_error(exc),file=sys.stderr)
+        print(error_hint(exc),file=sys.stderr)
         sys.exit(1)

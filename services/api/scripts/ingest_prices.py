@@ -39,6 +39,9 @@ for idx,c in enumerate(companies):
  try:
   latest=(db.table("price_history").select("price_date").eq("company_id",c["id"]).order("price_date",desc=True).limit(1).execute().data or [])
   start=(date.fromisoformat(latest[0]["price_date"])+timedelta(days=1)) if latest else end-timedelta(days=365*args.bootstrap_years)
+  if getattr(db,"history_policy",None) and not getattr(db,"archive",None):
+   from app.db.market_history import cutoff_for
+   start=max(start,date.fromisoformat(cutoff_for(db.history_policy,"price_history")))
   gap=gaps.get(c["id"])
   if gap:
    start=min(start,date.fromisoformat(gap["first_missing"]))

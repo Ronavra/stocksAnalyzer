@@ -31,11 +31,17 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
+      - name: Check full-history availability
+        id: history_gate
+        run: python scripts/local_history_gate.py
       - name: Repair historical sessions and labels, then refresh setups
+        if: steps.history_gate.outputs.run == 'true'
         run: python scripts/repair_research_history.py
       - name: Verify live API data and policy results
+        if: steps.history_gate.outputs.run == 'true'
         run: python scripts/verify_research_release.py
       - uses: actions/upload-artifact@v4
+        if: steps.history_gate.outputs.run == 'true'
         with:
           name: research-release-verification
           path: services/api/research_release_verification.json

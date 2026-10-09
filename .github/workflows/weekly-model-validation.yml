@@ -46,7 +46,11 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Test weekly execution and promotion rules
         run: python -m pytest tests/test_weekly_ranker.py tests/test_weekly_rank_metrics.py tests/test_signal_execution.py -q
+      - name: Check full-history availability
+        id: history_gate
+        run: python scripts/local_history_gate.py
       - name: Validate five-day ranking and downside estimates
+        if: steps.history_gate.outputs.run == 'true'
         run: python scripts/validate_weekly_ranker.py
       - uses: actions/upload-artifact@v4
         if: always()

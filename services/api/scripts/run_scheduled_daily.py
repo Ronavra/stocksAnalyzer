@@ -12,6 +12,11 @@ from scripts.daily_run_gate import should_run
 
 
 def main():
+    if os.getenv("LOCAL_MARKET_ARCHIVE") and os.getenv("LOCAL_MARKET_ARCHIVE_BACKUP"):
+        # Runs even when GitHub completed the market refresh first, or the Data
+        # API remains restricted. Direct Postgres is only used for verified cleanup.
+        subprocess.run([sys.executable,str(API_DIR/"scripts"/"archive_market_history.py"),
+                        "--maintain","--prune"],check=True,cwd=API_DIR)
     db=get_supabase()
     if not should_run(db,"independent_scheduler"):
         print("Daily refresh already completed or active; checking Sunday's publication.")

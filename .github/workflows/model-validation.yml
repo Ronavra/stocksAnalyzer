@@ -33,5 +33,9 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Compile predictive model
         run: python -m py_compile app/research/calibrated_model.py scripts/ablation_predictive_model.py scripts/generate_weekly_signals.py
+      - name: Check full-history availability
+        id: history_gate
+        run: python scripts/local_history_gate.py
       - name: Validate feature groups out of sample
+        if: steps.history_gate.outputs.run == 'true'
         run: python scripts/ablation_predictive_model.py

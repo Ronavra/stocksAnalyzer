@@ -11,9 +11,12 @@ def ret(a,b):
 
 def recent_prices(db, company_id, limit=100):
     def fetch_page(offset, page_size):
-        return (db.table("price_history").select("price_date,open,high,low,close,volume,source")
-                .eq("company_id",company_id).order("price_date",desc=True)
-                .order("source",desc=True).range(offset,offset+page_size-1).execute().data or [])
+        q=db.table("price_history").select("price_date,open,high,low,close,volume,source").eq("company_id",company_id)
+        if getattr(db,"history_policy",None) and not getattr(db,"archive",None):
+            from app.db.market_history import cutoff_for
+            q=q.gte("price_date",cutoff_for(db.history_policy,"price_history"))
+        return (q.order("price_date",desc=True).order("source",desc=True)
+                .range(offset,offset+page_size-1).execute().data or [])
     return recent_distinct_prices(fetch_page, limit=limit)
 
 def build(db, full=False, tickers=None):

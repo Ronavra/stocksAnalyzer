@@ -191,6 +191,8 @@ def fundamental_asof(snapshots,cid,asof):
 
 
 def load_price_rows(db,years=5):
+    from app.db.market_history import require_full_history
+    require_full_history(db)
     latest=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
     if not latest:
         return [],None

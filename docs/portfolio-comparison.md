@@ -38,6 +38,13 @@ cache. A complete adjusted series is replaced atomically per company to avoid
 mixing adjustment vintages after corporate actions. Endpoint access denial is
 recorded as incomplete coverage, without requesting a paid upgrade.
 
+`scripts/check_portfolio_comparison.py` records a dated summary in the
+`portfolio_comparison` pipeline. The independent Portfolio Return Evaluation
+workflow refreshes and verifies the comparison on relevant code changes or manual
+dispatch, without waiting for the market-research queue. Daily schedulers also
+verify after collection. Each company snapshot is atomic; a concurrent refresh
+cannot splice differently adjusted bars into one stored series.
+
 The replay uses expected NYSE sessions, not the number of downloaded bars.
 Missing entry/held-company/benchmark closes and incomplete frozen groups block
 the comparison at the last complete day. Total-return results never fall back

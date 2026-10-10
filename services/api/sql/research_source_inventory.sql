@@ -40,7 +40,9 @@ with universe as (
  select e.company_id,max(e.captured_at) observed_at,min(e.captured_at) first_observed_at,
  count(distinct e.captured_date) observation_days,
  count(distinct (e.fiscal_period_end,e.period_type)) filter(where e.captured_at>=now()-interval '48 hours' and e.eps_consensus is not null) eps_periods,
- count(distinct (e.fiscal_period_end,e.period_type)) filter(where e.captured_at>=now()-interval '48 hours' and e.revenue_consensus is not null) revenue_periods
+ count(distinct (e.fiscal_period_end,e.period_type)) filter(where e.captured_at>=now()-interval '48 hours' and e.revenue_consensus is not null) revenue_periods,
+ count(distinct (e.fiscal_period_end,e.period_type)) filter(where e.captured_at>=now()-interval '48 hours' and
+  (e.eps_consensus<e.eps_low or e.eps_consensus>e.eps_high or e.revenue_consensus<e.revenue_low or e.revenue_consensus>e.revenue_high)) inconsistent_periods
  from public.estimate_snapshots e join universe u on u.id=e.company_id
  where e.captured_at<=now() group by e.company_id
 ), earnings as (

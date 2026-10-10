@@ -99,7 +99,7 @@ def summarize(companies):
 
 def load_coverage(db, company_id=None, financial_report=None, now=None):
     if financial_report is None:
-        reports = db.table("pipeline_runs").select("metadata,finished_at,status").eq("pipeline", "research_sources_refresh").order("started_at", desc=True).limit(3).execute().data or []
+        reports = db.table("pipeline_runs").select("metadata,finished_at,status").eq("pipeline", "research_sources_refresh").contains("metadata", {"financial_audit": {}}).order("started_at", desc=True).limit(1).execute().data or []
         financial_report = next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")), {})
     audit = ((financial_report.get("metadata") or {}).get("financial_audit") or {})
     by_id = {x["company_id"]: x for x in audit.get("companies", [])}

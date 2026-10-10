@@ -59,8 +59,9 @@ def company_coverage(raw, financial_audit=None, checked_at=None, now=None):
         f"{analyst.get('analysts', 0)} recommendations; source {analyst.get('source') or 'unavailable'}.", analyst.get("observed_at"))
     estimates = raw.get("estimates") or {}
     eps, rev = estimates.get("eps_periods", 0), estimates.get("revenue_periods", 0)
-    add("estimates", "current" if eps and rev and recent(estimates.get("observed_at"), now, 48) else "partial" if eps or rev else "stale" if estimates.get("observed_at") else "missing",
-        f"Recent EPS/revenue fiscal periods: {eps}/{rev}. EPS accounting basis is unknown; do not compare with GAAP or adjusted guidance automatically.", estimates.get("observed_at"))
+    inconsistent = estimates.get("inconsistent_periods", 0)
+    add("estimates", "current" if eps and rev and not inconsistent and recent(estimates.get("observed_at"), now, 48) else "partial" if eps or rev else "stale" if estimates.get("observed_at") else "missing",
+        f"Recent EPS/revenue fiscal periods: {eps}/{rev}; {inconsistent} inconsistent provider intervals. EPS accounting basis is unknown; do not compare with GAAP or adjusted guidance automatically.", estimates.get("observed_at"))
     days = estimates.get("observation_days", 0)
     add("revisions", "partial" if days >= 2 else "building" if days else "missing",
         f"{days} observed days, starting {estimates.get('first_observed_at') or 'unavailable'}. Daily snapshots retain first observation; provider retrospective trends are not historical snapshots.")

@@ -36,6 +36,12 @@ def test_first_estimate_snapshot_is_not_a_revision_archive():
     assert result["revisions"]["status"] == "building"
 
 
+def test_inconsistent_provider_interval_is_flagged_as_partial():
+    result = layers({"estimates": {"observed_at": NOW.isoformat(), "eps_periods": 4, "revenue_periods": 4, "inconsistent_periods": 1}})
+    assert result["estimates"]["status"] == "partial"
+    assert "1 inconsistent provider intervals" in result["estimates"]["detail"]
+
+
 def test_future_timestamps_are_not_counted_as_current():
     result = layers({"estimates": {"observed_at": "2026-10-11T14:00:00Z", "eps_periods": 4, "revenue_periods": 4}})
     assert result["estimates"]["status"] != "current"

@@ -56,6 +56,9 @@ Estimate collection uses the public yfinance fetch and fiscal metadata retained
 in the same response by the pinned yfinance adapter. Missing metadata is an
 explicit failure, never a guessed quarter-end date. Repeated provider failures
 stop the batch and retain a retryable partial report. Empty symbols are listed.
+An average outside the provider's reported low/high interval marks the issuer's
+estimate coverage partial. The source value is retained and flagged; revision
+percentages involving that interval are suppressed rather than silently repaired.
 
 Official filing metadata preserves the original first-observed timestamp on
 retries and verifies CIK identity before accepting a submission. Its bounded

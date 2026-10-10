@@ -82,3 +82,46 @@ def test_watermark_uses_successful_refresh_start_not_partial_batch_capture():
     assert ingest.watermark(Db(),30)=="2026-10-06T07:19:40+00:00"
     assert ("pipeline","earnings_refresh") in calls
     assert ("status","success") in calls
+
+
+def test_missing_history_backfill_requests_only_uncovered_share_class(monkeypatch):
+    requested=[];saved=[]
+    class Query:
+        def select(self,*args): return self
+        def eq(self,*args): return self
+        def order(self,*args,**kwargs): return self
+        def execute(self): return type("Result",(),{"data":[{"id":1,"ticker":"BF-B"},{"id":2,"ticker":"ABC"}]})()
+        def upsert(self,payload,**kwargs): saved.extend(payload);return self
+    class Db:
+        def table(self,*args): return Query()
+    class Provider:
+        async def earnings(self,ticker):
+            requested.append(ticker)
+            return [event(ticker="BF/B",actual_eps=1)]
+    monkeypatch.setattr(ingest,"get_supabase",Db)
+    monkeypatch.setattr(ingest,"MassiveProvider",Provider)
+    monkeypatch.setattr(ingest,"missing_earnings_companies",lambda db:[{"id":1,"ticker":"BF-B"}])
+    monkeypatch.setattr(ingest.sys,"argv",["ingest","--backfill-missing"])
+    asyncio.run(ingest.main())
+    assert requested==["BF.B"]
+    assert len(saved)==1 and saved[0]["company_id"]==1
+
+
+def test_backfill_write_failure_cannot_be_reported_as_success(monkeypatch):
+    import pytest
+    class Query:
+        def select(self,*args): return self
+        def eq(self,*args): return self
+        def order(self,*args,**kwargs): return self
+        def execute(self): return type("Result",(),{"data":[{"id":1,"ticker":"ABC"}]})()
+        def upsert(self,*args,**kwargs): raise RuntimeError("database write failed")
+    class Db:
+        def table(self,*args): return Query()
+    class Provider:
+        async def earnings(self,ticker): return [event(actual_eps=1)]
+    monkeypatch.setattr(ingest,"get_supabase",Db)
+    monkeypatch.setattr(ingest,"MassiveProvider",Provider)
+    monkeypatch.setattr(ingest,"missing_earnings_companies",lambda db:[{"id":1,"ticker":"ABC"}])
+    monkeypatch.setattr(ingest.sys,"argv",["ingest","--backfill-missing"])
+    with pytest.raises(RuntimeError,match="Earnings collection failed for: ABC"):
+        asyncio.run(ingest.main())

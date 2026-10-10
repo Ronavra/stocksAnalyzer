@@ -41,6 +41,7 @@ def main():
     earnings_ok=True
     try:
         run_script("refresh_research_sources.py",["--earnings-only","--max-age-hours","4"])
+        run_script("ingest_massive_earnings.py",["--backfill-missing"])
     except subprocess.CalledProcessError:
         earnings_ok=False
         print("ERROR: Required earnings refresh failed; collecting the remaining sources before reporting failure.",file=sys.stderr,flush=True)

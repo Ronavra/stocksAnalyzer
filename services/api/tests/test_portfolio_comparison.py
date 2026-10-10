@@ -135,6 +135,16 @@ def test_drawdown_uses_daily_equity_peaks_and_stress_costs_reduce_returns():
     assert stress["summary"]["cumulative_return"]<base["summary"]["cumulative_return"]
 
 
+def test_missing_leading_benchmark_history_cannot_move_the_original_entry():
+    days=calendar(6); group=cohort()
+    rows=[r for r in bars(days) if not (r["company_id"]==99 and r["price_date"]==days[0])]
+    report=compare_portfolios([group],prediction(group),rows,[],99,"v1")
+    result=report["by_policy"]["v1"]["5"]["price_return"]["base"]
+    assert result["status"]=="blocked"
+    assert result["curve"]==[]
+    assert result["issues"][0]["date"]==days[0]
+
+
 def test_atomic_adjusted_snapshot_rejects_gaps_invalid_and_conflicting_prices():
     rows=[{"price_date":"2026-01-05","close":"100"}]
     assert normalized_series(rows,{"2026-01-05"},"2026-01-05")==[{"price_date":"2026-01-05","close":100.}]

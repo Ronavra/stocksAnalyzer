@@ -110,3 +110,11 @@ Explicit parent-company/Standardized capital contexts are accepted; subsidiary
 figures, regulatory minimums and unknown dimensions are excluded. Bank required
 fields are checked separately from the generic eight-field inventory. Identity
 transitions and insufficient TTM histories remain explicit.
+
+Fiscal transition filings (10-KT/10-QT) are retained. When a year-end change
+breaks the normal four-quarter construction, dollar TTM flows may be recovered
+only through identities of exact reported start/end intervals using one
+concept/unit, with availability bounded by the source filing. Missing intervals
+and conflicting overlaps reject the calculation. Short transition periods are
+never treated as twelve-month annual results. Diluted EPS is not derived by
+this interval fallback because its denominator changes between periods.

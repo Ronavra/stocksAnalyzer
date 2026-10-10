@@ -37,9 +37,16 @@ async def refresh(db, provider, limit=500):
                     if len(response.content) > 5_000_000: raise ValueError('Ownership XML exceeds limit')
                     rows = insider_transactions(response.content, c, event, now())
                 except Exception as exc:
-                    report['errors'].append({'ticker': c['ticker'], 'type': type(exc).__name__})
+                    known_reasons={
+                        'Ownership filing issuer identity mismatch':'issuer_mismatch',
+                        'Ownership transaction is in the future':'future_transaction',
+                        'Expected an official ownership XML URL':'invalid_source_url',
+                        'Ownership XML exceeds limit':'size_limit',
+                    }
+                    reason=known_reasons.get(str(exc),'source_or_parse_error')
+                    report['errors'].append({'ticker': c['ticker'], 'type': type(exc).__name__,'reason':reason,'accession':event['accession_number']})
                     db.table('company_disclosures').update({'ownership_status':'error'}).eq('id', event['id']).execute()
-                    check(db, 'ownership', 'sec_form4', 'error', c['id'], accession=event['accession_number'], error_type=type(exc).__name__)
+                    check(db, 'ownership', 'sec_form4', 'error', c['id'], accession=event['accession_number'], error_type=type(exc).__name__,reason=reason)
                     if len(report['errors']) >= 10: break
                     continue
                 # Storage errors are not mistaken for provider data gaps.

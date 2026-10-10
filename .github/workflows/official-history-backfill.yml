@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/official-history-backfill.yml"
+      - "services/api/app/providers/sec.py"
 permissions:
   contents: read
 concurrency:
@@ -31,3 +32,4 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python scripts/refresh_company_disclosures.py --lookback-days 1825
       - run: python scripts/check_source_coverage.py
+        if: always()

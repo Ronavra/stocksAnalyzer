@@ -14,7 +14,7 @@ REPORT_LABELS={"10-K":"annual financial report", "10-Q":"quarterly financial rep
                "DEF 14A":"proxy statement", "DEFA14A":"proxy materials",
                "SC 13D":"beneficial ownership disclosure", "SC 13G":"beneficial ownership disclosure",
                "SCHEDULE 13D":"beneficial ownership disclosure", "SCHEDULE 13G":"beneficial ownership disclosure",
-               "4":"insider transaction disclosure"}
+               "4":"insider transaction disclosure",'10-KT':'fiscal transition financial report','10-QT':'quarter transition financial report'}
 
 def current_reports(company, submissions, observed_at, lookback_days=90):
     asof=datetime.fromisoformat(observed_at.replace('Z','+00:00')).date()

@@ -45,7 +45,7 @@ class SECProvider:
                 raise RuntimeError(f"SEC submissions failed with HTTP {r.status_code}")
             return r.json()
 
-    async def submission_history(self,cik,submissions,lookback_days,observed_at,max_files=30):
+    async def submission_history(self,cik,submissions,lookback_days,observed_at,max_files=256):
         """Follow the issuer's own older SEC inventory, preserving original filing dates."""
         from datetime import timedelta
         cik10=str(int(cik)).zfill(10)
@@ -53,7 +53,7 @@ class SECProvider:
             raise ValueError('Historical filing issuer identity mismatch')
         cutoff=(datetime.fromisoformat(observed_at.replace('Z','+00:00'))-timedelta(days=lookback_days)).date().isoformat()
         files=[f for f in (submissions.get('filings') or {}).get('files',[]) if f.get('filingTo','')>=cutoff and f.get('filingFrom','')<=observed_at[:10]]
-        if len(files)>max_files:raise ValueError('Historical SEC inventory exceeds bounded file limit')
+        if len(files)>max_files:raise ValueError(f'Historical SEC inventory has {len(files)} files; bounded limit is {max_files}')
         merged={k:list(v) for k,v in ((submissions.get('filings') or {}).get('recent') or {}).items()}
         async with httpx.AsyncClient(timeout=60,headers={'User-Agent':self.user_agent}) as client:
             for f in files:
@@ -95,7 +95,7 @@ def financial_reports(submissions:dict):
     result=[]
     reviews=json.loads((Path(__file__).resolve().parents[2]/'config'/'filing_reviews.json').read_text())
     for index,form in enumerate(recent.get("form") or []):
-        if form not in ("10-K","10-K/A","10-Q","10-Q/A","20-F","20-F/A","40-F","40-F/A"):
+        if form not in ("10-K","10-K/A","10-Q","10-Q/A","10-KT","10-KT/A","10-QT","10-QT/A","20-F","20-F/A","40-F","40-F/A"):
             continue
         def value(key):
             values=recent.get(key) or []
@@ -381,7 +381,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             for unit in units.get(key, ["USD"]):
                 for x in (node.get("units") or {}).get(unit) or []:
                     if (
-                        x.get("form") in ("10-Q", "10-Q/A","10-K","10-K/A")
+                        x.get("form") in ("10-Q", "10-Q/A","10-K","10-K/A","10-KT","10-KT/A","10-QT","10-QT/A")
                         and x.get("end")
                         and x.get("val") is not None
                     ):

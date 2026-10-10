@@ -59,6 +59,8 @@ def main():
         run_script("run_weekly_cycle.py")
     if not run_script("refresh_portfolio_returns.py",required=False):
         incomplete.append("dividend-adjusted portfolio evaluation")
+    elif not run_script("check_portfolio_comparison.py",required=False):
+        incomplete.append("portfolio comparison validation")
     if not run_script("refresh_enrichment.py",required=False):
         incomplete.append("news/management guidance")
     if not earnings_ok:

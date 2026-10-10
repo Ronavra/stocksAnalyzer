@@ -106,6 +106,10 @@ jobs:
       - name: Preview weekly readiness after a pipeline change
         if: ${{ success() && steps.daily_gate.outputs.sources == 'true' && github.event_name == 'push' }}
         run: python scripts/generate_weekly_signals.py --dry-run
+      - name: Refresh dividend-adjusted portfolio evaluation prices
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' }}
+        continue-on-error: true
+        run: python scripts/refresh_portfolio_returns.py
       - name: Report delayed daily starts and completions
         if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}
         run: python scripts/report_daily_schedule.py

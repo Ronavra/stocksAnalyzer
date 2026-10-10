@@ -63,3 +63,6 @@ The task uses your existing API environment and runs at 08:00 Israel time. Windo
 The platform separates facts, market expectations, catalysts, risks, and scenario analysis. Scores are research signals, not personalized investment advice.
 
 See [reliability and history repair](docs/reliability.md) for publication guarantees, data quality checks, scheduling and remaining research limitations.
+
+See [portfolio comparison with SPY](docs/portfolio-comparison.md) for capital allocation,
+publication-aware execution, dividends, costs and benchmark measurement rules.

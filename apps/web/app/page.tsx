@@ -1,4 +1,5 @@
-import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth,getCohorts,safeLoad} from "@/lib/api";
+import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth,getCohorts,getPortfolioComparison,safeLoad} from "@/lib/api";
+import PortfolioComparison from "./PortfolioComparison";
 import RefreshStatus from "./RefreshStatus";
 import PolicyPerformance from "./PolicyPerformance";
 import SearchBar from "./SearchBar";
@@ -12,10 +13,11 @@ export default async function Home(){
   safeLoad(getCandidates,[]),safeLoad(getDataAudit,{universe:0,layers:[],missing_price_tickers:[],notes:[]}),
   safeLoad(getSignals,[]),safeLoad(getScorecard,{by_horizon:{}}),
   safeLoad(getSystemHealth,{status:"unavailable"}),safeLoad(getCohorts,[]),
+  safeLoad(getPortfolioComparison,{by_policy:{}}),
  ]);
- const [candidateResult,auditResult,signalResult,scoreResult,healthResult,cohortResult]=loaded;
+ const [candidateResult,auditResult,signalResult,scoreResult,healthResult,cohortResult,portfolioResult]=loaded;
  const candidates=candidateResult.data,audit=auditResult.data,signals=signalResult.data,scorecard=scoreResult.data,health=healthResult.data;
- const sections=["Stock screener","Data coverage","Recommendations","Performance","System health","Recommendation groups"];
+ const sections=["Stock screener","Data coverage","Recommendations","Performance","System health","Recommendation groups","Portfolio comparison"];
  const errors=loaded.flatMap((result,i)=>result.error?[`${sections[i]}: ${result.error}`]:[]);
  const withSetup=candidates.filter(x=>x.opportunity_score!=null); const avgN=withSetup.length?Math.round(withSetup.reduce((s,x)=>s+(x.setup_sample_size||0),0)/withSetup.length):0;
  return <main>
@@ -23,6 +25,7 @@ export default async function Home(){
   <RefreshStatus/>
   {errors.length>0&&<section className="panel" role="alert"><h2>Some data could not be loaded</h2>{errors.map(message=><p key={message}>{message}</p>)}</section>}
   {health.daily_schedule?.overdue&&<p className="negative" role="status">Today&apos;s daily update is overdue. Latest stored close: {health.latest_price_date??"unavailable"}.</p>}
+  <PortfolioComparison data={portfolioResult.error?undefined:portfolioResult.data}/>
   {!signalResult.error&&<WeeklySignals signals={signals} scorecard={scorecard} cohortRecords={cohortResult.data}/>}
   <details className="dashboardDetails"><summary>Live performance of each selection policy<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody"><PolicyPerformance metrics={scorecard.prospective}/></div></details>
   <details className="dashboardDetails"><summary>Data health and coverage<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody">

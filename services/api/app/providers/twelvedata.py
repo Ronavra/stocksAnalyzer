@@ -61,3 +61,12 @@ class TwelveDataProvider(MarketDataProvider):
         values=data.get("values",[]) if isinstance(data,dict) else []
         rows=[{"date":v.get("datetime"),"open":v.get("open"),"high":v.get("high"),"low":v.get("low"),"close":v.get("close"),"volume":v.get("volume")} for v in values]
         return ProviderValue(rows,Provenance("twelvedata",url,datetime.now(timezone.utc)))
+
+    async def historical_total_returns(self,ticker,from_date,to_date):
+        # Separate from execution/valuation prices. The default time_series
+        # adjustment is splits only; all explicitly includes cash dividends.
+        data,url=await self._get("time_series",symbol=self.provider_symbol(ticker),interval="1day",
+                                 start_date=from_date,end_date=to_date,order="asc",outputsize=5000,adjust="all")
+        values=data.get("values",[]) if isinstance(data,dict) else []
+        rows=[{"price_date":v.get("datetime"),"close":v.get("close")} for v in values]
+        return ProviderValue(rows,Provenance("twelvedata_adjust_all",url,datetime.now(timezone.utc)))

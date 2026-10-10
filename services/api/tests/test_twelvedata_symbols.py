@@ -30,3 +30,18 @@ def test_class_share_quote_uses_same_symbol():
     result = asyncio.run(provider.quote("BRK-B"))
     assert calls == [("quote", {"symbol": "BRK.B"})]
     assert result.value["symbol"] == "BRK.B"
+
+
+def test_total_return_request_explicitly_adjusts_dividends_without_changing_price_history():
+    provider=TwelveDataProvider(api_key="test")
+    calls=[]
+    async def fake_get(path,**params):
+        calls.append(params)
+        return {"values":[{"datetime":"2026-01-05","close":"100"}]}, "https://api.twelvedata.com/time_series"
+    provider._get=fake_get
+    adjusted=asyncio.run(provider.historical_total_returns("BF-B","2026-01-05","2026-01-07"))
+    assert calls[-1]["symbol"]=="BF.B"
+    assert calls[-1]["adjust"]=="all"
+    assert adjusted.provenance.provider=="twelvedata_adjust_all"
+    asyncio.run(provider.historical_prices("BF-B","2026-01-05","2026-01-07"))
+    assert "adjust" not in calls[-1]

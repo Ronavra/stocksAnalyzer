@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 NY=ZoneInfo("America/New_York")
@@ -44,6 +44,18 @@ def full_day_holidays(year):
 
 def is_trading_day(d):
     return d.weekday()<5 and d not in full_day_holidays(d.year)
+
+def session_close(d):
+    """NYSE regular-session close, including its scheduled 13:00 closes.
+
+    https://www.nyse.com/trade/hours-calendars
+    A closed July 3 / December 24 never becomes an extra trading session.
+    """
+    if not is_trading_day(d):
+        raise ValueError("Not a trading session")
+    early=(d==nth_weekday(d.year,11,3,4)+timedelta(days=1)
+           or (d.month,d.day) in ((7,3),(12,24)))
+    return datetime.combine(d,time(13 if early else 16),NY)
 
 def latest_completed_session(now=None,data_ready_hour=17):
     now=now or datetime.now(NY)

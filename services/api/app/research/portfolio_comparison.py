@@ -183,7 +183,10 @@ def compare_portfolios(cohorts, predictions, price_rows, total_return_rows, benc
     observed = sorted({r["price_date"] for r in price_rows if r["company_id"] == benchmark_id and positive(r.get("close"))})
     calendar=[]
     if observed:
-        day=date.fromisoformat(observed[0]); end=date.fromisoformat(observed[-1])
+        first_signal=min((c["signal_date"] for c in cohorts if c.get("status")=="published"),default=observed[0])
+        # A pruned/missing leading SPY history must not move old entries to the
+        # first downloaded bar. Expected sessions start at the frozen signals.
+        day=date.fromisoformat(min(first_signal,observed[0])); end=date.fromisoformat(observed[-1])
         while day<=end:
             if is_trading_day(day):
                 calendar.append(day.isoformat())

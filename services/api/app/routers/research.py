@@ -14,6 +14,7 @@ from datetime import datetime,timezone,timedelta
 from ..research.weekly_rank_metrics import RANKER_VERSION, ranker_is_validated
 from .retry_clock_skew import RetryClockSkewRoute
 from ..research.prospective_metrics import prospective_metrics, paged
+from ..research.portfolio_comparison import load_portfolio_comparison
 from ..market_calendar import latest_completed_session, NY
 from ..research.daily_schedule import schedule_status
 from ..research.market_freshness import market_freshness
@@ -196,6 +197,10 @@ def scorecard():
             } for v in versions
         }
     }
+
+@router.get("/portfolio-comparison")
+def portfolio_comparison():
+    return load_portfolio_comparison(get_supabase())
 
 @router.get("/system-health")
 def system_health():

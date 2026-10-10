@@ -57,6 +57,10 @@ export async function getScorecard(){
  const res=await apiFetch("/api/v1/research/scorecard",{cache:"no-store"}); return res.json();
 }
 
+export async function getPortfolioComparison(){
+ const res=await apiFetch("/api/v1/research/portfolio-comparison",{cache:"no-store"}); return res.json();
+}
+
 export async function getSystemHealth(){
  const res=await apiFetch("/api/v1/research/system-health",{cache:"no-store"});
  return res.json();

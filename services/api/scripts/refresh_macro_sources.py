@@ -29,10 +29,11 @@ async def refresh(db,provider):
                     db.table('macro_observations').upsert(rows[offset:offset+500],on_conflict='series_id,observation_date,source,fingerprint',ignore_duplicates=True,returning='minimal').execute()
                 latest=max(x['observation_date'] for x in rows)
                 fresh=(datetime.fromisoformat(observed).date()-datetime.fromisoformat(latest).date()).days<=SERIES[series][2]
-                report['series'][series]={'rows':len(rows),'latest':latest,'fresh':fresh}
-                check(db,'macro',series,'success' if fresh else 'partial',latest=latest,historical_vintages=bool(provider.api_key),max_age_days=SERIES[series][2])
+                vintage=all(x.get('vintage_date') is not None for x in rows)
+                report['series'][series]={'rows':len(rows),'latest':latest,'fresh':fresh,'source':rows[0]['source'],'historical_vintages':vintage}
+                check(db,'macro',series,'success' if fresh else 'partial',latest=latest,historical_vintages=vintage,max_age_days=SERIES[series][2],observation_source=rows[0]['source'])
             try:
-                response=await client.get('https://www.bls.gov/schedule/news_release/bls.ics');response.raise_for_status()
+                response=await client.get('https://www.bls.gov/schedule/news_release/bls.ics',timeout=20);response.raise_for_status()
                 events=bls_calendar(response.text,now())
             except Exception as exc:
                 report['errors'].append({'source':'bls_calendar','type':type(exc).__name__})
@@ -42,6 +43,7 @@ async def refresh(db,provider):
                     db.table('economic_calendar_observations').upsert(events[offset:offset+500],on_conflict='source,source_record_id,observed_at',ignore_duplicates=True,returning='minimal').execute()
                 report['calendar_events']=len(events)
                 check(db,'macro','bls_calendar','success',events=len(events),snapshot_at=events[0]['observed_at'],fed_and_bea_calendars_collected=False)
+        report['historical_vintages']=bool(report['series']) and all(x['historical_vintages'] for x in report['series'].values())
         return finish(db,run,report)
     except Exception as exc:
         report['errors'].append({'type':type(exc).__name__});finish(db,run,report);raise

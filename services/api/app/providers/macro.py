@@ -6,6 +6,7 @@ import os
 from zoneinfo import ZoneInfo
 import httpx
 from app.research.evidence import number, fingerprint
+from app.providers.macro_primary import primary_observations
 
 SERIES = {
  'DFF': ('Federal funds rate','percent',7),
@@ -51,13 +52,24 @@ def vintage_observations(series, items, observed_at):
 
 
 class MacroProvider:
-    def __init__(self, api_key=None): self.api_key=api_key or os.getenv('FRED_API_KEY')
+    def __init__(self, api_key=None):
+        self.api_key=api_key or os.getenv('FRED_API_KEY')
+        self.primary_cache={};self.csv_unavailable=False
 
     async def observations(self, client, series, observed_at):
+        if self.csv_unavailable:
+            return await primary_observations(client,series,observed_at,SERIES[series][1],self.primary_cache)
+        try:
+            return await self.fred_observations(client,series,observed_at)
+        except httpx.HTTPError:
+            if not self.api_key:self.csv_unavailable=True
+            return await primary_observations(client,series,observed_at,SERIES[series][1],self.primary_cache)
+
+    async def fred_observations(self, client, series, observed_at):
         end=observed_at[:10]
         since=(datetime.fromisoformat(observed_at.replace('Z','+00:00'))-timedelta(days=370)).date().isoformat()
         if not self.api_key:
-            response=await client.get('https://fred.stlouisfed.org/graph.csv',params={'id':series,'cosd':since,'coed':end})
+            response=await client.get('https://fred.stlouisfed.org/graph.csv',params={'id':series,'cosd':since,'coed':end},timeout=15)
             response.raise_for_status()
             if len(response.content)>5_000_000: raise ValueError('Macro CSV exceeds limit')
             return csv_observations(series,response.text,observed_at)

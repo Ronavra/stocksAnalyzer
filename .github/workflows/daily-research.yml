@@ -74,14 +74,14 @@ jobs:
       - name: Refresh Massive earnings
         if: success() && steps.daily_gate.outputs.sources == 'true'
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
+      - name: Backfill earnings for newly added or uncovered companies
+        if: success() && steps.daily_gate.outputs.sources == 'true'
+        run: python scripts/ingest_massive_earnings.py --backfill-missing
       - name: Refresh SEC fundamentals and valuation
         id: sec_refresh
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT != '' }}
         continue-on-error: true
         run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
-      - name: Backfill earnings for newly added or uncovered companies
-        if: success() && steps.daily_gate.outputs.sources == 'true'
-        run: python scripts/ingest_massive_earnings.py --backfill-missing
       - name: Report missing SEC contact
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT == '' }}
         run: |
@@ -103,6 +103,9 @@ jobs:
       - name: Publish the weekly shortlist when Sunday publication is due
         if: ${{ success() && steps.daily_gate.outputs.sources == 'true' }}
         run: python scripts/run_weekly_cycle.py
+      - name: Preview weekly readiness after a pipeline change
+        if: ${{ success() && steps.daily_gate.outputs.sources == 'true' && github.event_name == 'push' }}
+        run: python scripts/generate_weekly_signals.py --dry-run
       - name: Report delayed daily starts and completions
         if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}
         run: python scripts/report_daily_schedule.py

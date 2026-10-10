@@ -82,3 +82,20 @@ def test_recency_checks_the_selected_pipeline():
 
     refresh.recent_success(Db(), 4, refresh.EARNINGS_PIPELINE)
     assert ("pipeline", "earnings_refresh") in queried
+
+
+def test_later_failure_is_retried_even_when_a_prior_success_is_recent():
+    from datetime import datetime,timezone
+    now=datetime.now(timezone.utc).isoformat()
+    class Query:
+        def select(self,*args): return self
+        def eq(self,key,value):
+            assert (key,value)==("pipeline",refresh.EARNINGS_PIPELINE)
+            return self
+        def order(self,*args,**kwargs): return self
+        def limit(self,*args): return self
+        def execute(self):
+            return type("Result",(),{"data":[{"status":"error","finished_at":now}]})()
+    class Db:
+        def table(self,*args): return Query()
+    assert refresh.recent_success(Db(),4,refresh.EARNINGS_PIPELINE) is None

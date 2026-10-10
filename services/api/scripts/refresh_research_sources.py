@@ -30,9 +30,9 @@ def recent_success(db,max_age_hours,pipeline):
     if not max_age_hours:
         return None
     rows=(db.table("pipeline_runs").select("*")
-          .eq("pipeline",pipeline).eq("status","success")
-          .order("finished_at",desc=True).limit(1).execute().data or [])
-    if not rows or not rows[0].get("finished_at"):
+          .eq("pipeline",pipeline)
+          .order("started_at",desc=True).limit(1).execute().data or [])
+    if not rows or rows[0].get("status")!="success" or not rows[0].get("finished_at"):
         return None
     finished=datetime.fromisoformat(rows[0]["finished_at"].replace("Z","+00:00"))
     age=(datetime.now(timezone.utc)-finished).total_seconds()/3600

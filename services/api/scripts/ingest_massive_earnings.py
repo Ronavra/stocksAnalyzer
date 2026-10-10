@@ -23,13 +23,48 @@ def normalize_ticker(v):
     return str(v or "").upper().replace(".","-")
 
 def watermark(db,lookback_hours):
-    rows=(db.table("earnings_events").select("captured_at")
-          .eq("source","massive_benzinga")
-          .order("captured_at",desc=True).limit(1).execute().data or [])
-    if not rows or not rows[0].get("captured_at"):
+    # A failed bulk write may have saved earlier batches. Only a completed
+    # refresh can advance the cursor, or a retry could skip unsaved records.
+    rows=(db.table("pipeline_runs").select("started_at")
+          .eq("pipeline","earnings_refresh").eq("status","success")
+          .order("started_at",desc=True).limit(1).execute().data or [])
+    if not rows or not rows[0].get("started_at"):
         return (datetime.now(timezone.utc)-timedelta(days=7)).isoformat()
-    dt=datetime.fromisoformat(rows[0]["captured_at"].replace("Z","+00:00"))
+    dt=datetime.fromisoformat(rows[0]["started_at"].replace("Z","+00:00"))
     return (dt-timedelta(hours=lookback_hours)).astimezone(timezone.utc).isoformat()
+
+def revision_order(row):
+    try:
+        updated=datetime.fromisoformat(str(row.get("last_updated") or "").replace("Z","+00:00"))
+        if updated.tzinfo is None:
+            updated=updated.replace(tzinfo=timezone.utc)
+    except ValueError:
+        updated=datetime.min.replace(tzinfo=timezone.utc)
+    # At an equal revision timestamp, prefer the complete observation and use
+    # the provider ID as a stable tie break. Never combine different EPS bases.
+    complete=sum(num(row.get(k)) is not None for k in
+                 ("actual_eps","actual_revenue","estimated_eps","estimated_revenue"))
+    return updated,complete,str(row.get("benzinga_id") or "")
+
+def unique_payload(rows,by_ticker,captured_at):
+    selected={}
+    ignored=0
+    duplicates=0
+    for row in rows:
+        cid=by_ticker.get(normalize_ticker(row.get("ticker")))
+        if cid is None:
+            ignored+=1
+            continue
+        item=payload_for(cid,row,captured_at)
+        if item is None:
+            continue
+        key=(cid,item["reported_date"],item["source"])
+        order=revision_order(row)
+        if key in selected:
+            duplicates+=1
+        if key not in selected or order>selected[key][0]:
+            selected[key]=(order,item)
+    return [selected[k][1] for k in sorted(selected)],ignored,duplicates
 
 def payload_for(company_id,x,captured_at):
     reported=x.get("date")
@@ -82,19 +117,10 @@ async def main():
     if a.incremental:
         since=a.since or watermark(db,a.lookback_hours)
         rows=await provider.earnings(updated_since=since)
-        payload=[]
-        ignored=0
-        for x in rows:
-            cid=by_ticker.get(normalize_ticker(x.get("ticker")))
-            if not cid:
-                ignored+=1
-                continue
-            item=payload_for(cid,x,captured_at)
-            if item:
-                payload.append(item)
+        payload,ignored,duplicates=unique_payload(rows,by_ticker,captured_at)
         for i in range(0,len(payload),250):
             db.table("earnings_events").upsert(payload[i:i+250],on_conflict="company_id,reported_date,source").execute()
-        print(f"Massive incremental earnings since={since} provider_rows={len(rows)} saved={len(payload)} ignored_non_sp500={ignored} api_calls=1")
+        print(f"Massive incremental earnings since={since} provider_rows={len(rows)} saved={len(payload)} duplicates_removed={duplicates} ignored_non_sp500={ignored}")
         return
 
     if a.ticker:
@@ -107,8 +133,7 @@ async def main():
             if i and a.delay:
                 await asyncio.sleep(a.delay)
             rows=await provider.earnings(c["ticker"])
-            payload=[payload_for(c["id"],x,captured_at) for x in rows]
-            payload=[x for x in payload if x]
+            payload,_,duplicates=unique_payload(rows,by_ticker,captured_at)
             if payload:
                 db.table("earnings_events").upsert(payload,on_conflict="company_id,reported_date,source").execute()
             print(c["ticker"],"earnings",len(payload))

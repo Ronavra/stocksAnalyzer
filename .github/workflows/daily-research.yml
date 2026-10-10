@@ -69,36 +69,36 @@ jobs:
           PRICE_CREDIT_BUDGET: '150'
         run: python scripts/run_daily_cycle.py
       - name: Confirm persisted pipeline health
-        if: success() && steps.daily_gate.outputs.run == 'true'
+        if: success() && steps.daily_gate.outputs.sources == 'true'
         run: python scripts/validate_daily_cycle.py
       - name: Refresh Massive earnings
-        if: success() && steps.daily_gate.outputs.run == 'true'
-        run: python scripts/refresh_research_sources.py --earnings-only
+        if: success() && steps.daily_gate.outputs.sources == 'true'
+        run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
       - name: Refresh SEC fundamentals and valuation
         id: sec_refresh
-        if: ${{ steps.daily_gate.outputs.run == 'true' && env.SEC_USER_AGENT != '' }}
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT != '' }}
         continue-on-error: true
-        run: python scripts/refresh_research_sources.py --sec-only
+        run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
       - name: Report missing SEC contact
-        if: ${{ steps.daily_gate.outputs.run == 'true' && env.SEC_USER_AGENT == '' }}
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT == '' }}
         run: |
           echo "::warning::SEC refresh skipped. Configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete."
           echo "SEC refresh skipped: configure SEC_USER_AGENT with an application name and monitored contact email. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"
       - name: Report SEC access failure
         if: ${{ steps.sec_refresh.outcome == 'failure' }}
         run: |
-          echo "::warning::SEC refresh failed. Market data and Massive earnings completed; check the research_sources_refresh pipeline status and SEC step logs. Fundamentals remain incomplete."
-          echo "SEC refresh failed. Market data and Massive earnings completed; see research_sources_refresh status and SEC step logs. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::SEC refresh failed; check the research_sources_refresh pipeline status and SEC step logs. Fundamentals remain incomplete."
+          echo "SEC refresh failed; see research_sources_refresh status and SEC step logs. Fundamentals remain incomplete." >> "$GITHUB_STEP_SUMMARY"
       - name: Refresh free analyst consensus
-        if: ${{ steps.daily_gate.outputs.run == 'true' }}
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' }}
         continue-on-error: true
         run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
       - name: Collect news and management guidance independently
-        if: ${{ steps.daily_gate.outputs.run == 'true' }}
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' }}
         continue-on-error: true
         run: python scripts/refresh_enrichment.py
       - name: Publish the weekly shortlist when Sunday publication is due
-        if: ${{ success() }}
+        if: ${{ success() && steps.daily_gate.outputs.sources == 'true' }}
         run: python scripts/run_weekly_cycle.py
       - name: Report delayed daily starts and completions
         if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}

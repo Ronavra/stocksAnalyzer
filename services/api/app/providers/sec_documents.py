@@ -3,6 +3,38 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 import re
 import httpx
+from html import escape
+from app.research.guidance import ReleaseText
+
+MAX_DOCUMENT_BYTES=32_000_000
+MAX_VISIBLE_CHARS=2_000_000
+
+
+async def visible_document(client,url):
+    # Inline images can make a short earnings release enormous. Bound the
+    # decoded transfer AND visible text, while discarding image attributes,
+    # scripts and styles incrementally instead of buffering the whole HTML.
+    parser=ReleaseText(); chunks=[]; size=visible=0
+    async with client.stream("GET",url) as response:
+        if response.is_error:
+            raise RuntimeError(f"SEC earnings exhibit failed with HTTP {response.status_code}")
+        async for text in response.aiter_text():
+            size+=len(text.encode("utf-8"))
+            if size>MAX_DOCUMENT_BYTES:
+                raise RuntimeError("SEC earnings exhibit exceeds bounded download limit")
+            parser.feed(text)
+            part="".join(parser.parts); parser.parts.clear()
+            visible+=len(part)
+            if visible>MAX_VISIBLE_CHARS:
+                raise RuntimeError("SEC earnings exhibit exceeds visible-text limit")
+            chunks.append(part)
+        parser.close()
+        tail="".join(parser.parts)
+        if visible+len(tail)>MAX_VISIBLE_CHARS:
+            raise RuntimeError("SEC earnings exhibit exceeds visible-text limit")
+        chunks.append(tail)
+    # Keep escaped line boundaries expected by the conservative range parser.
+    return "<p>"+escape("".join(chunks)).replace("\n","</p><p>")+"</p>"
 
 
 class ExhibitIndex(HTMLParser):
@@ -45,10 +77,5 @@ async def release_documents(provider,event):
                 urls.append(url)
         documents=[]
         for url in urls[:4]:
-            result=await client.get(url)
-            if result.is_error:
-                raise RuntimeError(f"SEC earnings exhibit failed with HTTP {result.status_code}")
-            if len(result.content)>8_000_000:
-                raise RuntimeError("SEC earnings exhibit exceeds parser size limit")
-            documents.append((url,result.text))
+            documents.append((url,await visible_document(client,url)))
         return documents

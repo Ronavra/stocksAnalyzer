@@ -1,4 +1,4 @@
-"""Official SEC current reports; no sentiment or unverified guidance extraction."""
+"""Official SEC reports and material filings, with actual observation times."""
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -9,6 +9,12 @@ ITEM_LABELS={'1.01':'material agreement','1.03':'bankruptcy','2.01':'acquisition
              '4.02':'financial statement non-reliance','5.02':'management change',
              '7.01':'Regulation FD disclosure','8.01':'other material event'}
 
+REPORT_LABELS={"10-K":"annual financial report", "10-Q":"quarterly financial report",
+               "20-F":"annual foreign-issuer report", "40-F":"annual foreign-issuer report",
+               "DEF 14A":"proxy statement", "DEFA14A":"proxy materials",
+               "SC 13D":"beneficial ownership disclosure", "SC 13G":"beneficial ownership disclosure",
+               "SCHEDULE 13D":"beneficial ownership disclosure", "SCHEDULE 13G":"beneficial ownership disclosure"}
+
 def current_reports(company, submissions, observed_at, lookback_days=90):
     asof=datetime.fromisoformat(observed_at.replace('Z','+00:00')).date()
     recent=(submissions.get('filings') or {}).get('recent') or {}
@@ -17,7 +23,8 @@ def current_reports(company, submissions, observed_at, lookback_days=90):
         return values[index] if index<len(values) else default
     rows=[]
     for index,form in enumerate(recent.get('form') or []):
-        if form not in ('8-K','8-K/A','6-K','6-K/A'): continue
+        base_form=form.removesuffix('/A')
+        if base_form not in ('8-K','6-K') and base_form not in REPORT_LABELS: continue
         filed=cell('filingDate',index)
         if not filed or not 0 <= (asof-date.fromisoformat(filed)).days<=lookback_days: continue
         accession=cell('accessionNumber',index); document=cell('primaryDocument',index)
@@ -32,6 +39,8 @@ def current_reports(company, submissions, observed_at, lookback_days=90):
         if accepted>datetime.fromisoformat(observed_at.replace('Z','+00:00')): continue
         items=[x.strip() for x in cell('items',index).split(',') if x.strip()]
         labels=[ITEM_LABELS[x] for x in items if x in ITEM_LABELS]
+        if base_form in REPORT_LABELS:
+            labels.insert(0,REPORT_LABELS[base_form])
         rows.append({'company_id':company['id'],'accession_number':accession,'form':form,
             'filing_date':filed,'published_at':accepted.astimezone(timezone.utc).isoformat(),
             'observed_at':observed_at,'items':items,

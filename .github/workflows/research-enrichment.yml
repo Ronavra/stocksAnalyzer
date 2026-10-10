@@ -6,6 +6,13 @@ on:
     branches: [main]
     paths:
       - "services/api/scripts/refresh_enrichment.py"
+      - "services/api/scripts/refresh_estimate_snapshots.py"
+      - "services/api/app/providers/estimate_consensus.py"
+      - "services/api/scripts/refresh_company_disclosures.py"
+      - "services/api/app/research/company_disclosures.py"
+      - "services/api/app/research/source_coverage.py"
+      - "services/api/scripts/check_source_coverage.py"
+      - "services/api/sql/research_source_inventory.sql"
       - "services/api/scripts/ingest_news.py"
       - "services/api/app/research/guidance.py"
       - "services/api/app/providers/massive.py"

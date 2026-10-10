@@ -1,0 +1,19 @@
+import Link from "next/link";
+import type {CompanySourceCoverage,DataAudit,SourceCheck} from "@/lib/api";
+
+const label=(status:string)=>({current:"Current",observed:"Observed",partial:"Partial",stale:"Stale",missing:"Missing",building:"Building history",pending:"Pending",unknown:"Unknown",not_collected:"Not collected"} as Record<string,string>)[status]||status;
+
+export function SourceChecks({checks}:{checks?:SourceCheck[]}){
+ const names:Record<string,string>={research_sources_refresh:"Financial and earnings sources",company_disclosures_refresh:"Official filings",estimate_consensus_refresh:"Forward estimates",news_refresh:"Company news",sec_guidance_refresh:"Management guidance",analyst_consensus_refresh:"Analyst recommendations"};
+ return <details className="researchDetails"><summary>Latest collection attempts · independent of evidence coverage</summary>{checks?.length?checks.map(check=><p key={check.pipeline}>{names[check.pipeline]||check.pipeline}: <b className={check.status==="error"?"negative":"muted"}>{check.status}</b><small className="priceDate">{check.finished_at||check.started_at}</small></p>):<p className="muted">No collection status is available.</p>}</details>;
+}
+
+export function CompanyCoverage({coverage}:{coverage?:CompanySourceCoverage|null}){
+ return <section className="panel"><p className="eyebrow">EVIDENCE COVERAGE</p><h2>What is available for this company?</h2><p className="muted">Observed records do not establish complete coverage or predictive value. Collection status and the remaining gaps are shown separately.</p>{coverage?<div className="sourceCoverageGrid">{coverage.layers.map(layer=><article className="sourceCoverageItem" key={layer.key}><div className="sourceCoverageHead"><b>{layer.label}</b><span className={`sourceState sourceState-${layer.status}`}>{label(layer.status)}</span></div><p>{layer.detail}</p>{layer.observed_at&&<small>Observed / checked {layer.observed_at}</small>}</article>)}</div>:<p className="muted">Coverage inventory is unavailable. Completeness has not been verified.</p>}</section>;
+}
+
+export default function SourceCoverage({audit}:{audit:DataAudit}){
+ if(!audit.source_families)return <section className="panel"><h2>Source inventory unavailable</h2><p className="muted">The major data families have not been checked.</p></section>;
+ const shared=["calls","ownership","macro"];
+ return <section className="panel"><p className="eyebrow">MAJOR DATA FAMILIES</p><h2>Coverage and remaining gaps</h2><p className="muted">A company with records is not necessarily fully covered. News and filings are marked observed; stale or incomplete information stays visible.</p><div className="tableScroll" tabIndex={0} role="region" aria-label="Coverage of major stock data families"><table><thead><tr><th>Data family</th><th>Current / observed</th><th>Other states</th></tr></thead><tbody>{audit.source_families.map(family=><tr key={family.key}><td>{family.label}</td><td>{family.covered_companies} / {family.total}</td><td>{Object.entries(family.status_counts).filter(([state])=>state!=="current"&&state!=="observed").map(([state,count])=>`${label(state)}: ${count}`).join(" · ")||"—"}</td></tr>)}</tbody></table></div><SourceChecks checks={audit.source_checks}/><p className="muted">Dedicated earnings-call, ownership and macro feeds remain uncollected. Corporate-action calendars and long historical revisions also remain incomplete.</p><details className="researchDetails"><summary>Company-specific gaps · open a ticker for full evidence</summary><div className="sourceGapList">{audit.company_gaps?.map(company=>{const gaps=company.gaps.filter(g=>!shared.includes(g.key));return <p key={company.ticker}><Link className="ticker" href={`/company/${encodeURIComponent(company.ticker)}`}>{company.ticker}</Link><span>{gaps.map(g=>`${g.label}: ${label(g.status)}`).join(" · ")||"No additional gaps found"}</span></p>})}</div></details></section>;
+}

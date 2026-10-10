@@ -44,7 +44,11 @@ export async function getCompany(ticker:string){
 }
 export type AuditLayer={key:string;label:string;companies:number;total:number;coverage_pct:number;status:string};
 export type FinancialGap={ticker:string;status:string;ttm_period?:string|null;latest_report?:{period_end:string}|null;missing_fields?:string[]};
-export type DataAudit={universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[];financial_checked_at?:string|null;financial_quality?:{universe_checked:number;current_ttm:number;current_complete:number;field_coverage:Record<string,number>;status_counts:Record<string,number>}|null;financial_gaps?:FinancialGap[]};
+export type SourceLayer={key:string;label:string;status:string;detail:string;observed_at?:string|null};
+export type CompanySourceCoverage={ticker:string;layers:SourceLayer[];gaps:string[];all_major_data_complete:boolean};
+export type SourceFamily={key:string;label:string;status_counts:Record<string,number>;covered_companies:number;total:number};
+export type SourceCheck={pipeline:string;status:string;started_at:string;finished_at?:string|null};
+export type DataAudit={universe:number;layers:AuditLayer[];missing_price_tickers:string[];notes:string[];source_families?:SourceFamily[];source_checks?:SourceCheck[];company_gaps?:{ticker:string;gaps:{key:string;label:string;status:string}[]}[];all_major_data_complete?:boolean;financial_checked_at?:string|null;financial_quality?:{universe_checked:number;current_ttm:number;current_complete:number;field_coverage:Record<string,number>;status_counts:Record<string,number>}|null;financial_gaps?:FinancialGap[]};
 export async function getDataAudit():Promise<DataAudit>{
  const res=await apiFetch("/api/v1/research/data-audit",{cache:"no-store"});
  return res.json();

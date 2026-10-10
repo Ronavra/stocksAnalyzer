@@ -17,16 +17,20 @@ def main():
     run=db.table("pipeline_runs").insert({"pipeline":"research_enrichment","status":"running","started_at":started}).execute().data[0]
     results={}
     for source,script,args,key in (
+        ("forward_estimates","refresh_estimate_snapshots.py",[],None),
         ("news","ingest_news.py",[],"MASSIVE_API_KEY"),
+        ("official_filings","refresh_company_disclosures.py",[],"SEC_USER_AGENT"),
         ("vendor_guidance","ingest_massive_guidance.py",["--incremental"],"MASSIVE_API_KEY"),
         ("sec_guidance","enrich_company_disclosures.py",[],"SEC_USER_AGENT"),
     ):
-        if not os.getenv(key):
+        if key and not os.getenv(key):
             results[source]={"status":"not_configured"}; continue
         # Source scripts sanitize provider errors. Keep logs on the runner;
         # an optional provider failure must not erase other collected data.
         result=subprocess.run([sys.executable,str(API_DIR/"scripts"/script),*args])
         results[source]={"status":"success" if result.returncode==0 else "error","exit_code":result.returncode}
+    audit=subprocess.run([sys.executable,str(API_DIR/"scripts"/"check_source_coverage.py")])
+    results["coverage_audit"]={"status":"success" if audit.returncode==0 else "error","exit_code":audit.returncode}
     status="success" if all(r["status"]=="success" for r in results.values()) else "error"
     db.table("pipeline_runs").update({"status":status,"finished_at":datetime.now(timezone.utc).isoformat(),"metadata":{"sources":results},
         "error_message":None if status=="success" else "Some optional sources are unavailable; inspect individual source status"}).eq("id",run["id"]).execute()

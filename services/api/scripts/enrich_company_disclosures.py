@@ -18,7 +18,7 @@ async def main():
     parser=argparse.ArgumentParser(); parser.add_argument("--limit",type=int,default=300); args=parser.parse_args()
     db=get_supabase(); provider=SECProvider(); started=datetime.now(timezone.utc).isoformat()
     run=db.table("pipeline_runs").insert({"pipeline":"sec_guidance_refresh","status":"running","started_at":started}).execute().data[0]
-    rows=db.table("company_disclosures").select("*").or_(f"enriched_at.is.null,enrichment_parser.neq.{PARSER_VERSION},enrichment_parser.is.null").gte("filing_date",(datetime.now(timezone.utc)-timedelta(days=90)).date().isoformat()).order("filing_date",desc=True).limit(min(args.limit,500)).execute().data or []
+    rows=db.table("company_disclosures").select("*").in_("form",["8-K","8-K/A","6-K","6-K/A"]).or_(f"enriched_at.is.null,enrichment_parser.neq.{PARSER_VERSION},enrichment_parser.is.null,enrichment_status.eq.error").gte("filing_date",(datetime.now(timezone.utc)-timedelta(days=90)).date().isoformat()).order("filing_date",desc=True).limit(min(args.limit,500)).execute().data or []
     count=processed=0; errors=[]
     for event in rows:
         if event["form"].startswith("8-K") and not set(event.get("items") or [])&{"2.02","7.01","8.01"}:
@@ -38,6 +38,7 @@ async def main():
             count+=len(payload); processed+=1
         except Exception as exc:
             errors.append({"accession_number":event["accession_number"],"error":str(exc)[:250]})
+            db.table("company_disclosures").update({"enrichment_status":"error"}).eq("id",event["id"]).execute()
     report={"attempted":len(rows),"processed":processed,"guidance_ranges":count,"errors":errors,"bounded_batch":True,"parser":PARSER_VERSION}
     db.table("pipeline_runs").update({"status":"error" if errors else "success","finished_at":datetime.now(timezone.utc).isoformat(),"metadata":report}).eq("id",run["id"]).execute()
     print(json.dumps(report))

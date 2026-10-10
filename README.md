@@ -66,3 +66,6 @@ See [reliability and history repair](docs/reliability.md) for publication guaran
 
 See [portfolio comparison with SPY](docs/portfolio-comparison.md) for capital allocation,
 publication-aware execution, dividends, costs and benchmark measurement rules.
+
+See [major stock data coverage](docs/data-coverage.md) for collected sources,
+daily estimate snapshots, company-specific gaps and uncollected data families.

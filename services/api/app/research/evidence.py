@@ -25,7 +25,7 @@ def document(company_id, url, html, observed_at, published_at=None, accession=No
     # A passing reference to a call is not a transcript.
     if kind is None:
         lead = text[:1500]
-        kind = 'transcript' if re.search(r'\btranscript\b', lead, re.I) and re.search(r'conference call|earnings call', lead, re.I) else 'presentation' if re.search(r'\b(?:investor|earnings) presentation\b', lead, re.I) else 'earnings_release'
+        kind = 'transcript' if re.search(r'\btranscript\b', lead, re.I) and re.search(r'conference call|earnings call', lead, re.I) else 'presentation' if re.search(r'\b(?:investor|earnings) presentation\b', lead, re.I) else 'earnings_release' if re.search(r'earnings release|financial results|quarterly results|full.year results',lead,re.I) else 'official_release'
     if not text.strip():
         raise ValueError('Document has no visible content')
     if published_at and datetime.fromisoformat(published_at.replace('Z', '+00:00')) > datetime.fromisoformat(observed_at.replace('Z', '+00:00')):
@@ -42,6 +42,22 @@ def evidence_event(company_id, kind, source, record_id, url, payload, observed_a
     return {'company_id': company_id, 'kind': kind, 'source': source, 'source_record_id': str(record_id),
             'source_url': url, 'payload': payload, 'fingerprint': fingerprint(payload),
             'observed_at': observed_at, 'published_at': published_at, 'event_date': event_date}
+
+
+def ownership_issuer(xml):
+    root=ET.fromstring(xml)
+    for node in root.iter(): node.tag=node.tag.split('}')[-1]
+    issuer=root.findtext('issuer/issuerCik')
+    if not issuer or not issuer.isdigit():raise ValueError('Ownership filing issuer identity mismatch')
+    return issuer.lstrip('0')
+
+
+def ownership_target(xml, company, companies):
+    issuer=ownership_issuer(xml)
+    if issuer==str(company['cik']).lstrip('0'):return company
+    matches=[c for c in companies if str(c.get('cik') or '').lstrip('0')==issuer]
+    if len(matches)>1:raise ValueError('Ownership filing issuer identity mismatch')
+    return matches[0] if matches else None
 
 
 def insider_transactions(xml, company, event, observed_at):

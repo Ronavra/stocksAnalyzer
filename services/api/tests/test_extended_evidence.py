@@ -5,12 +5,21 @@ import httpx
 import pandas as pd
 import pytest
 from pypdf import PdfWriter
-from app.research.evidence import document,insider_transactions,corporate_actions,fingerprint
+from app.research.evidence import document,insider_transactions,corporate_actions,fingerprint,ownership_target
 from app.providers.macro import csv_observations,vintage_observations,bls_calendar,MacroProvider
 from app.providers.investor_relations import download,discovered_links,document_text
 from scripts.refresh_public_ownership_actions import holding_rows,action_rows
 
 NOW='2026-10-10T15:00:00Z'
+
+
+def test_reporting_owner_inventory_routes_only_to_verified_unique_issuer():
+    xml=b'<ownershipDocument><issuer><issuerCik>0002000</issuerCik></issuer></ownershipDocument>'
+    owner={'id':1,'cik':'1000'};issuer={'id':2,'cik':'2000'}
+    assert ownership_target(xml,owner,[owner,issuer])==issuer
+    assert ownership_target(xml,owner,[owner]) is None
+    assert ownership_target(xml,issuer,[issuer,{'id':3,'cik':'2000'}])==issuer
+    with pytest.raises(ValueError):ownership_target(xml,owner,[issuer,{'id':3,'cik':'2000'}])
 
 
 def test_ownership_identity_joint_owners_and_derivatives_do_not_create_false_purchases():
@@ -33,6 +42,7 @@ def test_document_revisions_have_new_hash_without_backdating_collection():
     revised=document(1,original['source_url'],'<p>Corrected earnings release.</p>',NOW,'2026-10-01T12:00:00Z','a')
     assert original['kind']=='earnings_release' and original['content_hash']!=revised['content_hash']
     assert original['observed_at']==NOW and original['published_at']!=NOW
+    assert document(1,'https://www.sec.gov/b.htm','<p>Appointment of a director</p>',NOW,accession='b')['kind']=='official_release'
     with pytest.raises(ValueError,match='future'):document(1,original['source_url'],'<p>Text</p>',NOW,'2026-10-11T12:00:00Z','a')
 
 

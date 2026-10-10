@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 API_DIR=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/".env")
 from app.db.client import get_supabase
-from scripts.daily_run_gate import should_run
+from scripts.daily_run_gate import refresh_plan
 
 
 def run_script(name,args=(),*,required=True):
@@ -29,15 +29,24 @@ def main():
         subprocess.run([sys.executable,str(API_DIR/"scripts"/"archive_market_history.py"),
                         "--maintain","--prune"],check=True,cwd=API_DIR)
     db=get_supabase()
-    if not should_run(db,"independent_scheduler"):
-        print("Daily refresh already completed or active; checking Sunday's publication.")
-        subprocess.run([sys.executable,str(API_DIR/"scripts"/"run_weekly_cycle.py")],check=True,cwd=API_DIR)
+    plan=refresh_plan(db,"independent_scheduler")
+    if not plan["run_sources"]:
+        print("Daily market refresh is active; skipping overlapping work.")
         return
-    run_script("run_daily_cycle.py")
-    run_script("refresh_research_sources.py",["--earnings-only"])
+    if plan["run_market"]:
+        run_script("run_daily_cycle.py")
+    else:
+        print("Market refresh already completed; checking source freshness.")
+    run_script("validate_daily_cycle.py")
+    earnings_ok=True
+    try:
+        run_script("refresh_research_sources.py",["--earnings-only","--max-age-hours","4"])
+    except subprocess.CalledProcessError:
+        earnings_ok=False
+        print("ERROR: Required earnings refresh failed; collecting the remaining sources before reporting failure.",file=sys.stderr,flush=True)
     incomplete=[]
     if os.getenv("SEC_USER_AGENT"):
-        if not run_script("refresh_research_sources.py",["--sec-only"],required=False):
+        if not run_script("refresh_research_sources.py",["--sec-only","--max-age-hours","24"],required=False):
             incomplete.append("SEC fundamentals/valuation")
     else:
         incomplete.append("SEC fundamentals/valuation (SEC_USER_AGENT missing)")
@@ -45,9 +54,12 @@ def main():
         incomplete.append("analyst consensus")
     # Publication still applies its own market/financial freshness gates. A
     # publication failure is required and must not be reported as daily success.
-    run_script("run_weekly_cycle.py")
+    if earnings_ok:
+        run_script("run_weekly_cycle.py")
     if not run_script("refresh_enrichment.py",required=False):
         incomplete.append("news/management guidance")
+    if not earnings_ok:
+        raise RuntimeError("Required earnings refresh failed; weekly publication blocked. Other sources were refreshed independently.")
     print("Daily market and earnings refresh completed.",flush=True)
     if incomplete:
         print("WARNING: Optional coverage incomplete: "+"; ".join(incomplete),file=sys.stderr,flush=True)

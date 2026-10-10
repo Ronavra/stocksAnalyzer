@@ -60,7 +60,7 @@ def data_audit():
     def item(key,label):
         count=d.get(key,0); pct=round(100*count/total,1) if total else 0
         return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
-    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("estimates","Standalone analyst forecast table"),item("earnings","Historical earnings events")]
+    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("earnings","Historical earnings events")]
     snapshots=load_snapshots(db,(datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
     universe_ids={r["id"] for r in db.table("companies").select("id").eq("is_sp500",True).execute().data or []}
     grouped={}
@@ -91,8 +91,7 @@ def data_audit():
                    "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})
     notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
     notes.append("News sentiment is attributed to the provider. SEC guidance uses explicit annual ranges with source evidence; unparsed releases and missing bank capital ratios remain unknown.")
-    if d.get("estimates",0)<total*.95:
-        notes.append("The standalone analyst forecast table has limited coverage; upcoming EPS consensus is audited separately from earnings events. Neither is the analyst recommendation consensus used in the 10% selection weight.")
+    notes.append("Fiscal EPS/revenue estimate snapshots are audited separately from upcoming report estimates and analyst recommendation consensus. None of these coverage counts establish predictive value.")
     reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
              .eq("pipeline","research_sources_refresh").contains("metadata",{"financial_audit":{}}).order("started_at",desc=True).limit(1).execute().data or [])
     report=next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")),None)
@@ -100,6 +99,11 @@ def data_audit():
     if financial:
         notes.append("Financial freshness is checked against SEC filing periods; retrieval success does not imply complete data.")
     coverage=load_coverage(db,financial_report=report or {})
+    estimate_family=next((f for f in coverage["families"] if f["key"]=="estimates"),{})
+    estimate_count=estimate_family.get("covered_companies",0)
+    layers.append({"key":"estimates","label":"Current fiscal EPS / revenue estimates","companies":estimate_count,
+                   "total":total,"coverage_pct":round(100*estimate_count/total,1) if total else 0,
+                   "status":"strong" if total and estimate_count>=total*.95 else "partial"})
     return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes,
             "source_families":coverage["families"],"source_checks":coverage["source_checks"],"all_major_data_complete":coverage["all_major_data_complete"],
             "company_gaps":[{"ticker":c["ticker"],"gaps":[{"key":x["key"],"label":x["label"],"status":x["status"]} for x in c["layers"] if x["key"] in c["gaps"]]} for c in coverage["companies"]],

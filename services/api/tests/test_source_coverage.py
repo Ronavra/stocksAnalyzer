@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from app.research.source_coverage import company_coverage, summarize
+from app.research.source_coverage import company_coverage, summarize, load_coverage
 
 NOW = datetime(2026, 10, 10, 14, tzinfo=timezone.utc)
 
@@ -60,3 +60,31 @@ def test_summary_distinguishes_observed_and_current_from_partial_data():
     assert families["news"]["covered_companies"] == 1
     assert families["guidance"]["covered_companies"] == 0
     assert families["macro"]["status_counts"] == {"not_collected": 1}
+
+
+def test_several_earnings_only_runs_do_not_hide_recent_financial_audit():
+    from types import SimpleNamespace
+    audit={"status":"current","company_id":1,"missing_fields":[]}
+    older={"pipeline":"research_sources_refresh","status":"success","finished_at":NOW.isoformat(),"metadata":{"financial_audit":{"companies":[audit]}}}
+    reports=[{"pipeline":"research_sources_refresh","status":"success","finished_at":NOW.isoformat(),"metadata":{"earnings":"refreshed"}} for _ in range(4)]+[older]
+    class Query:
+        def __init__(self): self.rows=reports; self.inventory=False
+        def select(self,*args): return self
+        def eq(self,*args): return self
+        def order(self,*args,**kwargs): return self
+        def in_(self,*args): return self
+        def contains(self,column,value):
+            self.rows=[r for r in self.rows if "financial_audit" in r["metadata"]]
+            return self
+        def limit(self,n): self.rows=self.rows[:n]; return self
+        def execute(self):
+            if self.inventory:
+                return SimpleNamespace(data=[{"company_id":1,"ticker":"TEST","financial":{"period_end":"2026-06-30"}}])
+            return SimpleNamespace(data=self.rows)
+    class Db:
+        def table(self,name): return Query()
+        def rpc(self,name,params):
+            query=Query(); query.inventory=True; return query
+    coverage=load_coverage(Db(),now=NOW)
+    financial=next(x for x in coverage["companies"][0]["layers"] if x["key"]=="financials")
+    assert financial["status"]=="current"

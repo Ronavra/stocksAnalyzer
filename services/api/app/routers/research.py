@@ -94,7 +94,7 @@ def data_audit():
     if d.get("estimates",0)<total*.95:
         notes.append("The standalone analyst forecast table has limited coverage; upcoming EPS consensus is audited separately from earnings events. Neither is the analyst recommendation consensus used in the 10% selection weight.")
     reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
-             .eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(3).execute().data or [])
+             .eq("pipeline","research_sources_refresh").contains("metadata",{"financial_audit":{}}).order("started_at",desc=True).limit(1).execute().data or [])
     report=next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")),None)
     financial=((report.get("metadata") or {}).get("financial_audit") or {}) if report else {}
     if financial:

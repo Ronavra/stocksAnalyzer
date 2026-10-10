@@ -62,6 +62,21 @@ def test_summary_distinguishes_observed_and_current_from_partial_data():
     assert families["macro"]["status_counts"] == {"not_collected": 1}
 
 
+def test_collected_holdings_and_macro_stay_partial_with_known_remaining_gaps():
+    result=layers({'evidence':{'documents':{'call_documents':1,'undated_call_documents':1},
+        'events':{'institutional_holdings':10,'insider_transactions':2,'corporate_actions':4},
+        'global_checks':[{'family':'macro','source':'DGS10','status':'success','checked_at':NOW.isoformat(),'metadata':{'historical_vintages':False}}]}})
+    assert result['ownership']['status']=='partial' and 'not verified original 13F' in result['ownership']['detail']
+    assert result['calls']['status']=='partial' and result['actions']['status']=='partial'
+    assert result['macro']['status']=='partial' and '1/9' in result['macro']['detail']
+    assert 'must not be used as past-known values' in result['macro']['detail']
+
+
+def test_old_successful_macro_check_is_not_current_and_pending_insiders_are_visible():
+    result=layers({'evidence':{'pending':{'insider_pending':3},'global_checks':[{'family':'macro','source':'DGS10','status':'success','checked_at':'2026-09-01T12:00:00Z','metadata':{}}]}})
+    assert result['macro']['status']=='unavailable' and result['ownership']['status']=='pending'
+
+
 def test_several_earnings_only_runs_do_not_hide_recent_financial_audit():
     from types import SimpleNamespace
     audit={"status":"current","company_id":1,"missing_fields":[]}

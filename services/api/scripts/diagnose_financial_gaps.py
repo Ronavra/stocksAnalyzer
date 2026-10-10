@@ -19,8 +19,8 @@ from app.providers.sec import SECProvider, latest_financial_report
 async def main():
     db = get_supabase(); provider = SECProvider()
     run = db.table("pipeline_runs").insert({"pipeline": "financial_gap_diagnostics", "status": "running", "started_at": datetime.now(timezone.utc).isoformat()}).execute().data[0]
-    companies = db.table("companies").select("id,ticker,cik,scoring_profile").eq("active", True).eq("is_sp500", True).execute().data or []
-    selected = [c for c in companies if c["ticker"] in {"FERG", "HON", "HONA", "SKYD", "VYLR", "XOM"} or c.get("scoring_profile") == "bank"]
+    companies = db.table("companies").select("id,ticker,cik,scoring_profile,industry").eq("active", True).eq("is_sp500", True).execute().data or []
+    selected = [c for c in companies if c["ticker"] in {"FERG", "HON", "HONA", "SKYD", "VYLR", "XOM"} or c.get("scoring_profile") == "bank" or c.get('industry') in ('Diversified Banks','Regional Banks')]
     results = []
     try:
         async with httpx.AsyncClient(timeout=60, headers={"User-Agent": provider.user_agent}) as client:
@@ -54,6 +54,22 @@ async def main():
                         facts.append({"tag": tag, "value": el.text, "unit": el.attrib.get("unitRef"), "end": end,
                                       "dimensions": [{"axis": x.attrib.get("dimension"), "member": x.text} for x in ctx.iter() if x.tag.endswith("}explicitMember")] if ctx is not None else []})
                     row["capital_and_identity_facts"] = facts[:150]
+                    if c['ticker'] in {'FERG','HON','HONA','SKYD','XOM'}:
+                        from app.providers.sec import instance_company_facts, facts_by_period, quarter_facts_by_period
+                        from scripts.ingest_sec_fundamentals import build_ttm_rows
+                        try:
+                            parsed=instance_company_facts(response.content,c['cik'],report)
+                            annual=facts_by_period(parsed);quarters=quarter_facts_by_period(parsed)
+                            row['annual_periods']=annual[-4:];row['quarter_periods']=quarters[-8:];row['ttm_periods']=build_ttm_rows(annual,quarters)[-4:]
+                            income=[]
+                            for el in root:
+                                tag=el.tag.split('}')[-1]
+                                ctx=contexts.get(el.attrib.get('contextRef'))
+                                if ctx is not None and tag in ('Revenues','RevenueFromContractWithCustomerExcludingAssessedTax','NetIncomeLoss','OperatingIncomeLoss','EarningsPerShareDiluted'):
+                                    income.append({'tag':tag,'value':el.text,'start':ctx.findtext('x:period/x:startDate',namespaces=ns),'end':ctx.findtext('x:period/x:endDate',namespaces=ns),
+                                                   'dimensions':[{'axis':x.attrib.get('dimension'),'member':x.text} for x in ctx.iter() if x.tag.endswith('}explicitMember')]})
+                            row['income_facts']=income[:80]
+                        except Exception as exc:row['parse_error']=type(exc).__name__
                     row["status"] = "inspected"
                 except Exception as exc:
                     row.update(status="error", error_type=type(exc).__name__)

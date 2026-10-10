@@ -20,7 +20,7 @@ def test_annual_amendments_proxy_and_ownership_filings_keep_official_links():
     forms=['10-K/A','DEF 14A','SCHEDULE 13D','4','S-8']
     recent={'form':forms,'filingDate':['2026-10-02']*5,'accessionNumber':[str(i) for i in range(5)],'primaryDocument':['a.htm']*5}
     rows=current_reports({'id':1,'ticker':'TEST','cik':'123'},{'filings':{'recent':recent}},'2026-10-04T20:00:00Z')
-    assert [r['form'] for r in rows]==forms[:3]
+    assert [r['form'] for r in rows]==forms[:4]
 
 def test_absent_acceptance_time_uses_conservative_filing_day_end():
     recent={'form':['8-K'],'filingDate':['2026-10-02'],'accessionNumber':['a'], 'primaryDocument':['a.htm']}

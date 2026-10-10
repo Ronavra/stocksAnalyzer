@@ -34,7 +34,7 @@ async def main():
                 await asyncio.sleep(.2)
             if payload:
                 db.table("corporate_guidance_events").upsert(payload,on_conflict="company_id,event_date,fiscal_year,fiscal_period,source,source_record_id",ignore_duplicates=True,returning="minimal").execute()
-            db.table("company_disclosures").update({"enriched_at":datetime.now(timezone.utc).isoformat(),"enrichment_status":"guidance_extracted" if payload else "no_explicit_annual_range","enrichment_parser":PARSER_VERSION}).eq("id",event["id"]).execute()
+            db.table("company_disclosures").update({"enriched_at":datetime.now(timezone.utc).isoformat(),"enrichment_status":"guidance_extracted" if payload else "no_explicit_fiscal_range","enrichment_parser":PARSER_VERSION}).eq("id",event["id"]).execute()
             count+=len(payload); processed+=1
         except Exception as exc:
             errors.append({"accession_number":event["accession_number"],"error":str(exc)[:250]})

@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "services/api/app/providers/sec.py"
+      - "services/api/config/filing_reviews.json"
+      - "services/api/app/providers/sec_supplemental.py"
       - "services/api/scripts/ingest_sec_fundamentals.py"
       - "services/api/app/research/financial_quality.py"
       - "services/api/scripts/build_daily_valuation.py"

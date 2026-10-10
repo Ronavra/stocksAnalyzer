@@ -2,6 +2,8 @@ import os
 import re
 import math
 import xml.etree.ElementTree as ET
+import json
+from pathlib import Path
 from datetime import datetime, timezone
 import httpx
 from .base import ProviderValue, Provenance
@@ -43,6 +45,32 @@ class SECProvider:
                 raise RuntimeError(f"SEC submissions failed with HTTP {r.status_code}")
             return r.json()
 
+    async def submission_history(self,cik,submissions,lookback_days,observed_at,max_files=30):
+        """Follow the issuer's own older SEC inventory, preserving original filing dates."""
+        from datetime import timedelta
+        cik10=str(int(cik)).zfill(10)
+        if str(submissions.get('cik','')).lstrip('0')!=str(int(cik)):
+            raise ValueError('Historical filing issuer identity mismatch')
+        cutoff=(datetime.fromisoformat(observed_at.replace('Z','+00:00'))-timedelta(days=lookback_days)).date().isoformat()
+        files=[f for f in (submissions.get('filings') or {}).get('files',[]) if f.get('filingTo','')>=cutoff and f.get('filingFrom','')<=observed_at[:10]]
+        if len(files)>max_files:raise ValueError('Historical SEC inventory exceeds bounded file limit')
+        merged={k:list(v) for k,v in ((submissions.get('filings') or {}).get('recent') or {}).items()}
+        async with httpx.AsyncClient(timeout=60,headers={'User-Agent':self.user_agent}) as client:
+            for f in files:
+                name=f.get('name','')
+                if not re.fullmatch(r'CIK'+cik10+r'-submissions-\d{3}\.json',name):
+                    raise ValueError('Unexpected historical SEC inventory filename')
+                response=await client.get(self.BASE_URL+'/submissions/'+name);response.raise_for_status()
+                old=response.json()
+                if not isinstance(old.get('accessionNumber'),list):raise ValueError('Invalid historical SEC inventory')
+                keys=set(merged)|set(old);prior_len=len(merged.get('accessionNumber',[]));old_len=len(old['accessionNumber'])
+                for key in keys:
+                    if not isinstance(old.get(key,[]),list):continue
+                    merged.setdefault(key,['']*prior_len).extend(old.get(key) or ['']*old_len)
+                import asyncio
+                await asyncio.sleep(.2)
+        return {**submissions,'filings':{'recent':merged,'files':[]}}
+
     async def filing_facts(self,cik,report):
         """Read the official XBRL instance when Company Facts lags a filing."""
         accession=report.get("accession_number") or ""
@@ -65,6 +93,7 @@ def financial_reports(submissions:dict):
     """A successful facts download is checked against the actual filings list."""
     recent=((submissions.get("filings") or {}).get("recent") or {})
     result=[]
+    reviews=json.loads((Path(__file__).resolve().parents[2]/'config'/'filing_reviews.json').read_text())
     for index,form in enumerate(recent.get("form") or []):
         if form not in ("10-K","10-K/A","10-Q","10-Q/A","20-F","20-F/A","40-F","40-F/A"):
             continue
@@ -76,6 +105,11 @@ def financial_reports(submissions:dict):
             item={"period_end":period,"filed_date":value("filingDate"),"form":form}
             if value("accessionNumber"):
                 item["accession_number"]=value("accessionNumber")
+                review=reviews.get(item['accession_number'])
+                if (review and str(submissions.get('cik','')).lstrip('0')==review['cik']
+                    and item['period_end']==review['period_end'] and item['filed_date']==review['filed_date'] and form.endswith('/A')):
+                    item['financial_statement_base_filed_date']=review['financial_statement_base_filed_date']
+                    item['amendment_review']=review
             result.append(item)
     return sorted(result,key=lambda r:(r["period_end"],r["filed_date"] or ""),reverse=True)
 
@@ -102,7 +136,10 @@ def instance_company_facts(xml,cik,report):
         segmented=any(el.tag.endswith(("}segment","}scenario")) for el in context.iter())
         # Capital calculation approach is not a business segment. Accept only
         # the Standardized approach and never a subsidiary or other dimension.
-        capital_only=bool(members) and all("Capital" in axis and "Standardized" in member for axis,member in members)
+        capital_only=bool(members) and not any(el.tag.endswith('}typedMember') for el in context.iter()) and all(
+            (axis.split(':')[-1] in ('CapitalAdequacyApproachAxis','RiskWeightedAssetsCalculationMethodologyAxis') and member.split(':')[-1] in ('StandardizedApproachMember','BaselIIIStandardizedMember'))
+            or (axis.split(':')[-1]=='ConsolidatedEntitiesAxis' and member.split(':')[-1]=='ParentCompanyMember')
+            for axis,member in members)
         if segmented and not capital_only:
             continue
         period=context.find("x:period",ns)
@@ -111,7 +148,8 @@ def instance_company_facts(xml,cik,report):
         start=period.findtext("x:startDate",namespaces=ns)
         end=period.findtext("x:endDate",namespaces=ns) or period.findtext("x:instant",namespaces=ns)
         if end:
-            contexts[context.attrib["id"]]={"start":start,"end":end,"_capital_only":capital_only}
+            contexts[context.attrib["id"]]={"start":start,"end":end,"_capital_only":capital_only,
+                "_capital_basis":"standardized_consolidated" if any('Standardized' in member for _,member in members) else 'reported_parent_consolidated'}
     for unit in root.findall("x:unit",ns):
         measures=[(x.text or "").split(":")[-1] for x in unit.findall("x:measure",ns)]
         if len(measures)==1 and measures[0] in ("USD","shares","pure"):
@@ -141,7 +179,7 @@ def instance_company_facts(xml,cik,report):
         row={k:v for k,v in context.items() if not k.startswith("_")}
         row.update(val=value,filed=report["filed_date"],form=report["form"],accn=report["accession_number"])
         if context.get("_capital_only"):
-            row["capital_basis"]="standardized_consolidated"
+            row["capital_basis"]=context['_capital_basis']
         facts.setdefault(namespace,{}).setdefault(tag,{"units":{}})["units"].setdefault(unit,[]).append(row)
     if not facts:
         raise RuntimeError("Filing instance contains no supported consolidated standard facts")

@@ -44,7 +44,7 @@ def company_coverage(raw, financial_audit=None, checked_at=None, now=None):
     financial = financial_audit or {}
     fresh_audit = recent(checked_at, now, 30)
     fs = "current" if financial.get("status") == "current" and fresh_audit else "stale" if raw.get("financial") else "missing"
-    missing = financial.get("missing_fields") or []
+    missing = financial.get("missing_required_fields",financial.get("missing_fields")) or []
     if fs == "current" and missing:
         fs = "partial"
     add("financials", fs, f"Filing audit: {financial.get('status', 'not verified')}. Missing reported fields: {', '.join(missing) or 'none in the audit'}; requirements vary by industry.", checked_at)
@@ -74,12 +74,26 @@ def company_coverage(raw, financial_audit=None, checked_at=None, now=None):
     guidance = raw.get("guidance") or {}
     pending, errors = disclosures.get("pending", 0), disclosures.get("errors", 0)
     add("guidance", "partial" if guidance.get("events_90d") else "pending" if pending or errors else "unknown",
-        f"{guidance.get('events_90d', 0)} extracted ranges; {guidance.get('matched_consensus', 0)} matched event-time consensus; {pending} releases pending and {errors} parse failures. Only explicit annual narrative ranges are parsed.", guidance.get("observed_at"))
-    add("actions", "partial" if raw.get("total_return_date") else "missing",
-        f"Dividend-adjusted evaluation history through {raw.get('total_return_date') or 'unavailable'}. Separate dividend, split, merger and spin-off calendars are not collected.")
-    add("calls", "not_collected", "No dedicated earnings-call transcript or investor-presentation collector; releases may contain some related information.")
-    add("ownership", "not_collected", "Insider transaction values and institutional holding changes are not parsed.")
-    add("macro", "not_collected", "No dedicated rates, inflation, economic-event or commodity-exposure feed.")
+        f"{guidance.get('events_90d', 0)} extracted ranges; {guidance.get('matched_consensus', 0)} matched event-time consensus; {pending} releases pending and {errors} parse failures. Explicit fiscal year/quarter narrative ranges are parsed; ambiguous tables remain unknown.", guidance.get("observed_at"))
+    evidence=raw.get('evidence') or {}; docs=evidence.get('documents') or {}; events=evidence.get('events') or {}; backlog=evidence.get('pending') or {}
+    checks=evidence.get('checks') or []; globals_=evidence.get('global_checks') or []
+    action_checks=[c for c in checks+globals_ if c['family']=='actions']
+    observed_actions=events.get('corporate_actions',0)
+    action_status='partial' if observed_actions or raw.get('total_return_date') or any(c['status']=='success' for c in action_checks) else 'unavailable' if action_checks else 'missing'
+    add('actions',action_status,f"{observed_actions} stored dividend/split observations; adjusted evaluation history through {raw.get('total_return_date') or 'unavailable'}. Public history has no upcoming calendar; calendar permissions and merger/spin-off coverage remain separate.",events.get('observed_at'))
+    call_count=docs.get('call_documents',0);undated=docs.get('undated_call_documents',0)
+    call_checks=[c for c in checks if c['family']=='calls']
+    call_status='partial' if call_count else 'unknown' if call_checks else 'not_collected'
+    add('calls',call_status,f"{call_count} archived transcripts/presentations ({undated} with unknown publication time); {docs.get('releases',0)} official documents. Issuer registry and document backfill are incomplete.",docs.get('observed_at'))
+    holdings=events.get('institutional_holdings',0);insiders=events.get('insider_transactions',0)
+    owner_checks=[c for c in checks if c['family']=='ownership']
+    owner_status='partial' if holdings or insiders else 'pending' if backlog.get('insider_pending') else 'unknown' if owner_checks else 'not_collected'
+    add('ownership',owner_status,f"{insiders} parsed insider transactions; {holdings} public institutional holding observations, latest report {events.get('holdings_report_date') or 'unavailable'}. {backlog.get('insider_pending',0)} Form 4 filings pending; {backlog.get('insider_errors',0)} errors. Institutional source observations are not verified original 13F filing history.",events.get('observed_at'))
+    macro_checks=[c for c in globals_ if c['family']=='macro']
+    fresh_series=sum(c['source']!='bls_calendar' and c['status']=='success' and recent(c['checked_at'],now,48) for c in macro_checks)
+    macro_status='partial' if fresh_series else 'unavailable' if macro_checks else 'not_collected'
+    vintages=any((c.get('metadata') or {}).get('historical_vintages') for c in macro_checks)
+    add('macro',macro_status,f"{fresh_series}/9 macro series passed recent freshness checks. ALFRED vintages: {'configured' if vintages else 'unavailable; current CSV history must not be used as past-known values'}. BLS calendar checks are separate; Fed/BEA calendars and issuer currency/commodity exposures remain incomplete.")
     gaps = [x["key"] for x in layers if x["status"] not in ("current", "observed")]
     return {"company_id": raw["company_id"], "ticker": raw["ticker"], "layers": layers,
             "gaps": gaps, "all_major_data_complete": False}
@@ -105,7 +119,7 @@ def load_coverage(db, company_id=None, financial_report=None, now=None):
     by_id = {x["company_id"]: x for x in audit.get("companies", [])}
     raw = db.rpc("research_source_inventory", {"p_company_id": company_id}).execute().data or []
     companies = [company_coverage(r, by_id.get(r["company_id"]), financial_report.get("finished_at"), now) for r in raw]
-    checks = db.table("pipeline_runs").select("pipeline,status,started_at,finished_at").in_("pipeline", ["research_sources_refresh", "company_disclosures_refresh", "estimate_consensus_refresh", "news_refresh", "sec_guidance_refresh", "analyst_consensus_refresh"]).order("started_at", desc=True).limit(40).execute().data or []
+    checks = db.table("pipeline_runs").select("pipeline,status,started_at,finished_at").in_("pipeline", ["research_sources_refresh", "company_disclosures_refresh", "estimate_consensus_refresh", "news_refresh", "sec_guidance_refresh", "analyst_consensus_refresh",'official_documents_refresh','insider_transactions_refresh','public_ownership_actions_refresh','corporate_actions_refresh','macro_sources_refresh']).order("started_at", desc=True).limit(80).execute().data or []
     latest = {}
     for check in checks:
         latest.setdefault(check["pipeline"], check)

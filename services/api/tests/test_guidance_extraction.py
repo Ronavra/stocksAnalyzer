@@ -11,7 +11,15 @@ def test_explicit_annual_eps_and_revenue_ranges_have_method_units_and_evidence()
     revenue=next(r for r in rows if r.get('revenue_guidance_low') is not None)
     assert eps['eps_guidance_low']==6.5 and eps['eps_method']=='adjusted'
     assert revenue['revenue_guidance_low']==14.2e9 and revenue['revenue_guidance_high']==14.7e9
-    assert eps['captured_at']==EVENT['observed_at'] and eps['evidence']['parser']=='explicit_annual_range_v2'
+    assert eps['captured_at']==EVENT['observed_at'] and eps['evidence']['parser']=='explicit_fiscal_range_v3'
+
+
+def test_explicit_fiscal_quarter_is_separate_from_annual_range():
+    html='<p>Q1 fiscal 2027 outlook: adjusted EPS of $1 to $2.</p><p>Full-year 2027 outlook: adjusted EPS of $6 to $7.</p>'
+    rows=extract_guidance(html,1,EVENT)
+    assert {(r['fiscal_period'],r['eps_guidance_low']) for r in rows}=={('Q1',1),('FY',6)}
+    assert len({r['source_record_id'] for r in rows})==2
+    assert extract_guidance('<p>Q1 2027 outlook: EPS of $1 to $2.</p>',1,EVENT)==[]
 
 
 def test_quarter_actuals_withdrawn_and_ambiguous_table_values_stay_unknown():

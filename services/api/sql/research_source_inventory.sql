@@ -20,6 +20,9 @@ returns jsonb language sql stable security invoker set search_path='' as $$
 with universe as (
  select id,ticker from public.companies
  where active and is_sp500 and (p_company_id is null or id=p_company_id)
+), extra as (
+ select (item->>'company_id')::bigint company_id,item data
+ from jsonb_array_elements(public.research_evidence_inventory(p_company_id)) item
 ), news as (
  select n.company_id,max(n.published_at) published_at,max(n.created_at) observed_at,
  count(*) filter(where n.published_at>=now()-interval '7 days') articles_7d,
@@ -29,7 +32,7 @@ with universe as (
  group by n.company_id
 ), disclosures as (
  select d.company_id,max(d.published_at) published_at,max(d.observed_at) observed_at,count(*) reports_90d,
- count(*) filter(where d.enriched_at is null and d.form in ('8-K','8-K/A','6-K','6-K/A')) pending,
+ count(*) filter(where (d.enriched_at is null or d.enrichment_parser is null or d.enrichment_parser<>'explicit_fiscal_range_v3') and d.form in ('8-K','8-K/A','6-K','6-K/A')) pending,
  count(*) filter(where d.enrichment_status='error') errors,
  count(*) filter(where d.form in ('10-K','10-K/A','10-Q','10-Q/A','20-F','20-F/A','40-F','40-F/A')) financial_reports,
  count(*) filter(where d.enrichment_status='guidance_extracted') parsed_guidance
@@ -64,9 +67,10 @@ select coalesce(jsonb_agg(jsonb_build_object(
  'earnings',to_jsonb(e)-'company_id','estimates',to_jsonb(es)-'company_id',
  'analyst',a.data,'news',to_jsonb(n)-'company_id',
  'disclosures',to_jsonb(d)-'company_id','guidance',to_jsonb(g)-'company_id',
- 'total_return_date',tr.last_date
+ 'total_return_date',tr.last_date,'evidence',ex.data
  ) order by u.ticker),'[]'::jsonb)
 from universe u
+left join extra ex on ex.company_id=u.id
 left join lateral (select price_date from public.price_history where company_id=u.id and close>0 and price_date<=current_date order by price_date desc limit 1) p on true
 left join lateral (select feature_date from public.price_features where company_id=u.id and feature_date<=current_date order by feature_date desc limit 1) pf on true
 left join lateral (select jsonb_build_object('period_end',period_end,'filed_date',filed_date,'observed_at',captured_at,'source',source) data from public.financial_metrics where company_id=u.id and period_type='ttm' order by period_end desc limit 1) f on true

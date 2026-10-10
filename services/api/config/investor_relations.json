@@ -1,0 +1,12 @@
+{
+  "MSFT": {
+    "hosts": ["www.microsoft.com", "microsoft.com", "cdn-dynmedia-1.microsoft.com"],
+    "pages": ["https://www.microsoft.com/en-us/investor/default"],
+    "documents": [{"url": "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q4", "kind": "transcript", "published_at": "2026-07-30T03:59:59Z"}]
+  },
+  "NVDA": {
+    "hosts": ["investor.nvidia.com", "s201.q4cdn.com"],
+    "pages": ["https://investor.nvidia.com/financial-info/financial-reports/default.aspx"],
+    "documents": []
+  }
+}

@@ -20,6 +20,11 @@ def main():
         ("forward_estimates","refresh_estimate_snapshots.py",[],None),
         ("news","ingest_news.py",[],"MASSIVE_API_KEY"),
         ("official_filings","refresh_company_disclosures.py",[],"SEC_USER_AGENT"),
+        ("insider_transactions","refresh_insider_transactions.py",[],"SEC_USER_AGENT"),
+        ("official_documents","refresh_official_documents.py",[],"SEC_USER_AGENT"),
+        ("public_ownership_actions","refresh_public_ownership_actions.py",[],None),
+        ("corporate_action_calendar","refresh_corporate_actions.py",[],"TWELVE_DATA_API_KEY"),
+        ("macro_context","refresh_macro_sources.py",[],None),
         ("vendor_guidance","ingest_massive_guidance.py",["--incremental"],"MASSIVE_API_KEY"),
         ("sec_guidance","enrich_company_disclosures.py",[],"SEC_USER_AGENT"),
     ):

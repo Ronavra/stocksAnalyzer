@@ -37,6 +37,7 @@ jobs:
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
       FORCE_DAILY_REFRESH: ${{ inputs.force || 'false' }}
     steps:

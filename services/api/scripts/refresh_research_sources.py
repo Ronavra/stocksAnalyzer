@@ -79,6 +79,11 @@ def main():
     recent=recent_success(db,a.max_age_hours,pipeline)
     if recent:
         print(f"Research sources already refreshed recently at {recent.get('finished_at')}; skipping duplicate calls.")
+        # Source filings can be reused, but valuations follow the latest price
+        # close independently. Never leave yesterday's multiples after prices
+        # have advanced simply because the SEC audit is still recent.
+        if a.sec_only:
+            run("build_daily_valuation.py")
         return
 
     started=datetime.now(timezone.utc).isoformat()

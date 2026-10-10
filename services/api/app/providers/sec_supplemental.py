@@ -11,7 +11,7 @@ BALANCE_TAGS = {
     "long_term_debt_total": ("LongTermDebtCurrentAndNoncurrent", "LongTermDebtAndFinanceLeaseObligations"),
 }
 CAPITAL_TAGS = {
-    "cet1_ratio": ("CommonEquityTier1CapitalRatio", "CommonEquityTier1RiskBasedCapitalRatio", "CommonEquityTier1CapitalToRiskWeightedAssets", "CommonEquityTier1CapitaltoRiskWeightedAssets"),
+    "cet1_ratio": ("CommonEquityTier1CapitalRatio", "CommonEquityTier1RiskBasedCapitalRatio", "CommonEquityTier1CapitalToRiskWeightedAssets", "CommonEquityTier1CapitaltoRiskWeightedAssets", "CommonEquityTierOneCapitalRatio"),
     "tier1_ratio": ("TierOneRiskBasedCapitalRatio", "Tier1RiskBasedCapitalRatio", "Tier1CapitalRatio", "TierOneRiskBasedCapitalToRiskWeightedAssets"),
     "total_capital_ratio": ("TotalRiskBasedCapitalRatio", "TotalCapitalRatio"),
     "leverage_ratio": ("TierOneLeverageCapitalRatio", "Tier1LeverageRatio", "Tier1LeverageCapitalRatio", "TierOneLeverageCapitalToAverageAssets"),
@@ -30,7 +30,7 @@ def supplemental_by_period(data):
                 for row in units.get("pure" if field in CAPITAL_TAGS else "USD", []):
                     if not row.get("end") or not row.get("filed") or row.get("start"):
                         continue
-                    if row.get("form") not in ("10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A", "40-F", "40-F/A"):
+                    if row.get("form") not in ("10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A", "20-F", "20-F/A", "40-F", "40-F/A"):
                         continue
                     try:
                         value = float(row["val"])

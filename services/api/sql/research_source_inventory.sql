@@ -34,7 +34,7 @@ with universe as (
  select d.company_id,max(d.published_at) published_at,max(d.observed_at) observed_at,count(*) reports_90d,
  count(*) filter(where (d.enriched_at is null or d.enrichment_parser is null or d.enrichment_parser<>'explicit_fiscal_range_v3') and d.form in ('8-K','8-K/A','6-K','6-K/A')) pending,
  count(*) filter(where d.enrichment_status='error') errors,
- count(*) filter(where d.form in ('10-K','10-K/A','10-Q','10-Q/A','20-F','20-F/A','40-F','40-F/A')) financial_reports,
+ count(*) filter(where d.form in ('10-K','10-K/A','10-Q','10-Q/A','10-KT','10-KT/A','10-QT','10-QT/A','20-F','20-F/A','40-F','40-F/A')) financial_reports,
  count(*) filter(where d.enrichment_status='guidance_extracted') parsed_guidance
  from public.company_disclosures d join universe u on u.id=d.company_id
  where d.published_at>=now()-interval '90 days' and d.published_at<=now() and d.observed_at<=now()

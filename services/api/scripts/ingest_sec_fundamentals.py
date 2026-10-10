@@ -14,6 +14,7 @@ load_dotenv(API_DIR / ".env")
 
 from app.db.client import get_supabase
 from app.providers.sec import SECProvider, facts_by_period, quarter_facts_by_period, shares_outstanding_by_period, latest_financial_report, financial_reports, merge_company_facts
+from app.providers.sec_transition import transition_ttm
 from app.research.financial_quality import company_quality, summarize_quality
 from app.research.company_disclosures import current_reports
 from app.providers.sec_supplemental import attach_supplemental
@@ -308,6 +309,10 @@ async def main():
             annual_rows=attach_shares(annual_rows)
             quarter_rows=attach_shares(quarter_rows)
             ttm_rows = build_ttm_rows(annual_rows, quarter_rows)
+            if latest_report and (not ttm_rows or max(r['period_end'] for r in ttm_rows)<latest_report['period_end']):
+                current_quarter=next((r for r in quarter_rows if r['period_end']==latest_report['period_end']),None)
+                bridged=transition_ttm(source_data,latest_report,current_quarter)
+                if bridged:ttm_rows=sorted(ttm_rows+[bridged],key=lambda r:r['period_end'])
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)

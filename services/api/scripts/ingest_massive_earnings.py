@@ -20,7 +20,14 @@ def num(v):
         return None
 
 def normalize_ticker(v):
-    return str(v or "").upper().replace(".","-")
+    return str(v or "").upper().replace(".","-").replace("/","-")
+
+def missing_earnings_companies(db):
+    # Empty resource embedding performs an anti-join without downloading the
+    # full earnings history simply to find new/uncovered constituents.
+    return (db.table("companies").select("id,ticker,earnings_events()")
+            .eq("is_sp500",True).is_("earnings_events","null")
+            .order("ticker").execute().data or [])
 
 def watermark(db,lookback_hours):
     # A failed bulk write may have saved earlier batches. Only a completed
@@ -101,12 +108,15 @@ async def main():
     ap.add_argument("--ticker")
     ap.add_argument("--all",action="store_true")
     ap.add_argument("--incremental",action="store_true",help="Fetch all provider records updated since the last local sync using one bulk request")
+    ap.add_argument("--backfill-missing",action="store_true",help="Fetch full earnings history only for current companies with no earnings observations")
     ap.add_argument("--since",help="Override Massive last_updated lower bound (ISO 8601)")
     ap.add_argument("--lookback-hours",type=int,default=30,help="Overlap window to avoid missing provider updates")
     ap.add_argument("--batch-size",type=int,default=25)
     ap.add_argument("--offset",type=int,default=0)
     ap.add_argument("--delay",type=float,default=.25)
     a=ap.parse_args()
+    if a.backfill_missing and (a.incremental or a.ticker or a.all):
+        ap.error("--backfill-missing cannot be combined with another selection mode")
 
     db=get_supabase()
     provider=MassiveProvider()
@@ -123,22 +133,31 @@ async def main():
         print(f"Massive incremental earnings since={since} provider_rows={len(rows)} saved={len(payload)} duplicates_removed={duplicates} ignored_non_sp500={ignored}")
         return
 
-    if a.ticker:
+    if a.backfill_missing:
+        companies=missing_earnings_companies(db)
+    elif a.ticker:
         companies=[x for x in companies if normalize_ticker(x["ticker"])==normalize_ticker(a.ticker)]
     elif not a.all:
         companies=companies[a.offset:a.offset+a.batch_size]
 
+    failures=[]
     for i,c in enumerate(companies):
         try:
             if i and a.delay:
                 await asyncio.sleep(a.delay)
-            rows=await provider.earnings(c["ticker"])
+            # Benzinga uses dotted share classes; the database uses SEC-style
+            # hyphens. Response symbols are normalized back to database IDs.
+            rows=await provider.earnings(c["ticker"].replace("-","."))
             payload,_,duplicates=unique_payload(rows,by_ticker,captured_at)
             if payload:
-                db.table("earnings_events").upsert(payload,on_conflict="company_id,reported_date,source").execute()
+                for start in range(0,len(payload),250):
+                    db.table("earnings_events").upsert(payload[start:start+250],on_conflict="company_id,reported_date,source").execute()
             print(c["ticker"],"earnings",len(payload))
         except Exception as e:
+            failures.append(c["ticker"])
             print(c["ticker"],"ERROR",str(e))
+    if failures:
+        raise RuntimeError("Earnings collection failed for: "+", ".join(failures))
 
 if __name__=="__main__":
     asyncio.run(main())

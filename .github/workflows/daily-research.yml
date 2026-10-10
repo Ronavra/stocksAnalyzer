@@ -79,6 +79,9 @@ jobs:
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT != '' }}
         continue-on-error: true
         run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 24
+      - name: Backfill earnings for newly added or uncovered companies
+        if: success() && steps.daily_gate.outputs.sources == 'true'
+        run: python scripts/ingest_massive_earnings.py --backfill-missing
       - name: Report missing SEC contact
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT == '' }}
         run: |

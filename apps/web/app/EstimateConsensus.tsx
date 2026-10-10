@@ -1,0 +1,15 @@
+type Estimate={fiscal_period_end:string;period_type:string;relative_period?:string|null;eps_consensus:number|string|null;revenue_consensus:number|string|null;eps_analyst_count:number|null;revenue_analyst_count:number|null;eps_currency?:string|null;revenue_currency?:string|null;eps_basis:string;source:string;captured_at:string;captured_date:string};
+const amount=(value:number|string|null,currency?:string|null)=>value==null?"Unavailable":`${currency||"currency unknown"} ${Number(value).toLocaleString(undefined,{maximumFractionDigits:2})}`;
+function change(current:Estimate,history:Estimate[],key:"eps_consensus"|"revenue_consensus"){
+ const currency=key==="eps_consensus"?"eps_currency":"revenue_currency";
+ if(!current[currency])return "Currency unavailable";
+ const previous=history.find(row=>row.fiscal_period_end===current.fiscal_period_end&&row.period_type===current.period_type&&row.source===current.source&&row.captured_date<current.captured_date&&row[currency]===current[currency]&&row.eps_basis===current.eps_basis);
+ if(current[key]==null||previous?.[key]==null||Number(previous[key])===0)return "Not enough observed history";
+ const delta=(Number(current[key])-Number(previous[key]))/Math.abs(Number(previous[key]));
+ return `${delta>=0?"+":""}${(delta*100).toFixed(2)}% since ${previous.captured_date}`;
+}
+export default function EstimateConsensus({history}:{history:Estimate[]}){
+ const latestDate=history[0]?.captured_date;
+ const current=history.filter(row=>row.captured_date===latestDate);
+ return <section className="panel"><p className="eyebrow">FORWARD ANALYST ESTIMATES</p><h2>Fiscal consensus and observed changes</h2><p className="muted">Actual fiscal end dates and collection times are retained. EPS accounting basis is unknown, so estimates are not automatically compared with GAAP or adjusted guidance. Changes compare snapshots we observed on different days.</p>{current.length?<><p className="muted">Snapshot {latestDate} · source {current[0].source}</p><div className="tableScroll" tabIndex={0} role="region" aria-label="Fiscal earnings and revenue estimates"><table><thead><tr><th>Fiscal period</th><th>EPS consensus</th><th>Revenue consensus</th><th>Observed EPS change</th><th>Observed revenue change</th></tr></thead><tbody>{current.map(row=><tr key={`${row.source}:${row.period_type}:${row.fiscal_period_end}`}><td>{row.fiscal_period_end}<small className="priceDate">{row.period_type}</small></td><td>{amount(row.eps_consensus,row.eps_currency)}<small className="priceDate">{row.eps_analyst_count??"Unknown"} analysts</small></td><td>{amount(row.revenue_consensus,row.revenue_currency)}<small className="priceDate">{row.revenue_analyst_count??"Unknown"} analysts</small></td><td>{change(row,history,"eps_consensus")}</td><td>{change(row,history,"revenue_consensus")}</td></tr>)}</tbody></table></div></>:<p className="muted">No fiscal estimate snapshots have been collected for this company. Upcoming report estimates may still be available separately.</p>}</section>;
+}

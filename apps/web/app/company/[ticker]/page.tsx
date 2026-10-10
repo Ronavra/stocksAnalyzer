@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {getCompany} from "@/lib/api";
 import AnalystConsensus from "../../AnalystConsensus";
+import {CompanyCoverage,SourceChecks} from "../../SourceCoverage";
+import EstimateConsensus from "../../EstimateConsensus";
 
 const val=(v:any)=>v==null?"—":typeof v==="number"?Number(v).toFixed(1):String(v);
 const ratio=(v:any)=>v==null?"—":Number(v).toFixed(2);
@@ -15,6 +17,9 @@ export default async function CompanyPage({params}:{params:Promise<{ticker:strin
  const fs=a?.fundamentals; const financials=(data?.financials||[]).filter((x:any)=>x.revenue!=null).slice(0,5);
  return <main><Link href="/">← Dashboard</Link>
  <header className="companyHeader"><div><p className="eyebrow">{company.sector||"S&P 500"}</p><h1>{company.ticker} <span className="muted">{company.name}</span></h1><p className="muted">{s?.opportunity_reason||"Latest stored research snapshot"}</p></div></header>
+ <CompanyCoverage coverage={data.source_coverage}/>
+ <SourceChecks checks={data.source_checks}/>
+ <EstimateConsensus history={data.estimate_snapshots||[]}/>
 
  <section className="panel researchSummary"><p className="eyebrow">RESEARCH SUMMARY</p><h2>What matters now</h2>
  <div className="scoreGrid">

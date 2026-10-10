@@ -19,6 +19,7 @@ from ..market_calendar import latest_completed_session, NY
 from ..research.daily_schedule import schedule_status
 from ..research.market_freshness import market_freshness
 from ..research.model_identity import MODEL_VERSION
+from ..research.source_coverage import load_coverage
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
@@ -98,7 +99,10 @@ def data_audit():
     financial=((report.get("metadata") or {}).get("financial_audit") or {}) if report else {}
     if financial:
         notes.append("Financial freshness is checked against SEC filing periods; retrieval success does not imply complete data.")
+    coverage=load_coverage(db,financial_report=report or {})
     return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes,
+            "source_families":coverage["families"],"source_checks":coverage["source_checks"],"all_major_data_complete":coverage["all_major_data_complete"],
+            "company_gaps":[{"ticker":c["ticker"],"gaps":[{"key":x["key"],"label":x["label"],"status":x["status"]} for x in c["layers"] if x["key"] in c["gaps"]]} for c in coverage["companies"]],
             "financial_quality":financial.get("summary"),"financial_checked_at":financial.get("finished_at"),
             "financial_gaps":[r for r in financial.get("companies",[]) if r.get("status")!="current" or r.get("missing_fields")]}
 
@@ -131,6 +135,9 @@ def company(ticker:str):
           .eq("company_id",c["id"]).order("published_at",desc=True).limit(20).execute().data or [])
     guidance=(db.table("corporate_guidance_events").select("event_date,fiscal_year,fiscal_period,eps_method,revenue_method,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,source,source_url,captured_at,evidence")
               .eq("company_id",c["id"]).order("event_date",desc=True).limit(15).execute().data or [])
+    estimate_snapshots=(db.table("estimate_snapshots").select("fiscal_period_end,period_type,relative_period,eps_consensus,eps_low,eps_high,eps_analyst_count,revenue_consensus,revenue_low,revenue_high,revenue_analyst_count,eps_basis,eps_currency,revenue_currency,source,captured_at,captured_date")
+                        .eq("company_id",c["id"]).order("captured_at",desc=True).limit(32).execute().data or [])
+    source_coverage=load_coverage(db,company_id=c["id"])
     ttm=(db.table("financial_metrics").select("period_end,filed_date,net_income,supplemental")
          .eq("company_id",c["id"]).eq("period_type","ttm").order("period_end",desc=True).limit(8).execute().data or [])
     bank=None
@@ -152,6 +159,7 @@ def company(ticker:str):
         latest_forecasts.setdefault(forecast["horizon_days"],forecast)
     return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,"disclosures":disclosures,
             "news":news,"news_summary":news_summary(news),"guidance":guidance,"bank_metrics":bank,
+            "estimate_snapshots":estimate_snapshots,"source_checks":source_coverage["source_checks"],"source_coverage":next(iter(source_coverage["companies"]),None),
             "model_forecasts":list(latest_forecasts.values()),
             "analyst_consensus":consensus_score(consensus,datetime.now(timezone.utc).date().isoformat())}
 

@@ -130,6 +130,18 @@ def test_latest_quarter_without_full_ttm_history_is_reported():
     assert company_quality(company,[],[quarter],[],report,date(2026,10,3))["status"]=="insufficient_ttm_history"
 
 
+def test_reviewed_non_statement_amendment_preserves_original_metric_filing_date():
+    submissions={'cik':773840,'filings':{'recent':{'form':['10-Q/A'],'reportDate':['2026-06-30'],'filingDate':['2026-07-24'],'accessionNumber':['0000773840-26-000127']}}}
+    report=latest_financial_report(submissions)
+    assert report['financial_statement_base_filed_date']=='2026-07-23'
+    ttm={'period_end':'2026-06-30','filed_date':'2026-07-23',**{k:1 for k in CORE_FIELDS}}
+    assert company_quality({'id':1,'ticker':'HON'},[],[ttm],[ttm],report,date(2026,10,10))['status']=='current'
+    assert ttm['filed_date']=='2026-07-23'
+    # This review cannot excuse a different issuer, period or future amendment.
+    submissions['cik']=9999
+    assert 'financial_statement_base_filed_date' not in latest_financial_report(submissions)
+
+
 def test_annual_plus_matching_ytd_recovers_missing_intervening_quarter_eps():
     annual=[{"period_end":"2024-12-28","filed_date":"2026-02-11","revenue":100,"net_income":10,"eps_diluted":4.33},
             {"period_end":"2026-01-03","filed_date":"2026-02-11","revenue":120,"net_income":12,"eps_diluted":5.11}]

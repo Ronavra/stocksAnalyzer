@@ -17,18 +17,16 @@ separately; a failed latest attempt is not replaced by an older success.
 | Analyst recommendations | Daily observations of recommendation consensus; separate from EPS/revenue forecasts. |
 | Fiscal EPS/revenue estimates | Yahoo Finance's current and next quarter/year observations, actual provider fiscal end dates, averages, ranges, counts and currencies. Unknown EPS accounting basis is retained. |
 | Estimate revisions | First observation per UTC day/issuer/fiscal period/source is immutable. A same-day retry reuses it. Changes can only compare observed days with the same issuer, period, source, currency and basis. Provider 7/30/60/90-day retrospective EPS trends are stored as observations today, not backdated history. |
-| Official filings | Independently checks SEC submissions for all active constituents; retains annual/quarterly reports, current reports, proxy materials and beneficial-ownership filing links. Ownership trade values are not parsed. |
+| Official filings | Independently checks SEC submissions for all active constituents; retains annual/quarterly reports, current reports, proxy materials and beneficial-ownership filing links. Form 4 is collected for structured transaction parsing. A separate bounded five-year inventory backfill follows older issuer SEC JSON files, preserving original dates and today's first collection; it covers current constituents, not historical membership. |
 | News | Massive company-tagged articles and source-attributed sentiment, with publication and observation timestamps. One provider is not all news; zero articles does not mean no event. |
-| Management guidance | Explicit annual narrative EPS/revenue ranges from official releases. Ambiguous tables, quarterly ranges, withdrawn guidance and unknown accounting bases are not guessed. Event-time consensus remains unavailable unless independently recorded and comparable. |
-| Corporate actions | Dividend/split-adjusted series for published portfolio evaluation. No dedicated dividend, split, merger or spin-off calendar yet. |
+| Management guidance | Explicit fiscal-year and explicitly fiscal-labelled quarter narrative EPS/revenue ranges from official releases. Ambiguous tables, withdrawn guidance and unknown accounting bases are not guessed. Event-time consensus remains unavailable unless independently recorded and comparable. |
+| Corporate actions | Dividend/split-adjusted series for published portfolio evaluation. Public two-year dividend/split history is collected independently. An optional Twelve Data calendar paginates US instruments and matches the active universe. Ex-dates are not publication dates; merger/spin-off coverage remains incomplete. |
 
 ## Uncollected or incomplete major families
 
-- Earnings-call transcripts and investor presentations lack a dedicated collector.
-- Structured insider transaction values and institutional holding changes are
-  not collected. Official beneficial-ownership links alone do not fill this gap.
-- Rates, inflation, economic-event calendars and company-specific commodity or
-  currency exposures lack dedicated feeds.
+- Dedicated original-document collection now supports an explicit MSFT/NVDA IR registry, HTML and text PDFs. The company registry and archive backfill queue remain incomplete; missing dates and OCR-only PDFs stay unknown.
+- Form 4 transactions and current public institutional holdings are collected. Original institutional 13F verification, manager identity mapping, amendment-aware holding changes and long ownership history remain incomplete.
+- Nine FRED series and BLS calendar snapshots are collected. Fed/BEA calendars and issuer-specific currency/commodity exposures remain incomplete. Without FRED_API_KEY, current CSV history is not past-known vintage data; configured ALFRED retrieval preserves vintage dates.
 - Historical index membership before September 2026, discontinued securities,
   and long point-in-time analyst/financial revisions remain incomplete.
 - Sector-specific KPIs and reported bank capital ratios remain partial.
@@ -39,12 +37,15 @@ claims to include every factor influencing a stock.
 
 ## Operation
 
-Apply `services/api/sql/research_source_inventory.sql` once with the other
+Apply `services/api/sql/research_evidence.sql` before
+`services/api/sql/research_source_inventory.sql` with the other
 service-only schema migrations. No browser access to raw provider tables is
 granted. The read-only inventory function is SECURITY INVOKER and service-only.
 
 `refresh_enrichment.py` runs fiscal estimates, news, official filing metadata,
-vendor guidance, SEC range extraction and a persisted coverage audit. Each
+Form 4 transactions, original documents, public holdings/actions, optional
+corporate-action calendars, macro, vendor guidance, SEC range extraction and
+a persisted coverage audit. Each
 source is independent; failures retain successful observations, appear in the
 source's own pipeline and mark the enrichment run incomplete. Both the hosted
 daily workflow and the independent scheduler already call this entry point.
@@ -72,3 +73,40 @@ Failed releases remain retryable and are visible in the inventory.
 was computed; `all_major_data_complete` and `validated_predictive_value` remain
 false. New source collection does not change the frozen ranking weights or
 establish an advantage over SPY.
+
+## Source access and historical backfill
+
+`refresh_company_disclosures.py --lookback-days 1825` follows older official SEC
+inventory files. The Official Filing History Backfill workflow runs when first
+installed and can be dispatched again. Form 4 rows stay within 90 days to avoid
+flooding the daily queue; duplicate filings preserve their first observation.
+
+`config/investor_relations.json` is an explicit issuer/domain registry. Expand
+it with verified issuer sites. Allowlisted redirects cannot escape its hosts.
+The known MSFT call date uses conservative end-of-publication-day availability,
+not an invented precise intraday timestamp. Scanned PDFs stay unavailable.
+Source bodies are capped at 200,000 stored characters and truncation is explicit.
+
+Form 4 preserves joint owners, derivatives, codes, amendments and footnotes.
+Code P means open-market **or private** purchase. A joint filing does not create
+one transaction per owner. Public institutional holdings retain their report
+date separately from observation time and do not establish original 13F
+publication or historical availability. No subscription is purchased.
+
+Add FRED_API_KEY to server/runner configuration for ALFRED observation versions.
+Current CSV values retain observation time and cannot enter a historical test
+as values known before collection. BLS calendars retain full immutable schedule
+snapshots; the API selects the last successful snapshot and excludes removed
+events. Schedules and collection failures remain visible separately.
+
+For historical estimates/index data, require a vendor sample with stable issuer
+and security identifiers, fiscal period, currency, accounting basis, original
+availability time, revisions, index entries/exits and removed securities.
+Verify the sample against original sources before import. A five-year price
+chart of current constituents is not an unbiased five-year evaluation.
+
+Financial diagnostics retain original XBRL identity contexts and capital tags.
+Explicit parent-company/Standardized capital contexts are accepted; subsidiary
+figures, regulatory minimums and unknown dimensions are excluded. Bank required
+fields are checked separately from the generic eight-field inventory. Identity
+transitions and insufficient TTM histories remain explicit.

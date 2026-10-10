@@ -11,10 +11,10 @@ BALANCE_TAGS = {
     "long_term_debt_total": ("LongTermDebtCurrentAndNoncurrent", "LongTermDebtAndFinanceLeaseObligations"),
 }
 CAPITAL_TAGS = {
-    "cet1_ratio": ("CommonEquityTier1CapitalRatio", "CommonEquityTier1RiskBasedCapitalRatio", "CommonEquityTier1CapitalToRiskWeightedAssets"),
-    "tier1_ratio": ("TierOneRiskBasedCapitalRatio", "Tier1RiskBasedCapitalRatio", "Tier1CapitalRatio"),
+    "cet1_ratio": ("CommonEquityTier1CapitalRatio", "CommonEquityTier1RiskBasedCapitalRatio", "CommonEquityTier1CapitalToRiskWeightedAssets", "CommonEquityTier1CapitaltoRiskWeightedAssets"),
+    "tier1_ratio": ("TierOneRiskBasedCapitalRatio", "Tier1RiskBasedCapitalRatio", "Tier1CapitalRatio", "TierOneRiskBasedCapitalToRiskWeightedAssets"),
     "total_capital_ratio": ("TotalRiskBasedCapitalRatio", "TotalCapitalRatio"),
-    "leverage_ratio": ("TierOneLeverageCapitalRatio", "Tier1LeverageRatio", "Tier1LeverageCapitalRatio"),
+    "leverage_ratio": ("TierOneLeverageCapitalRatio", "Tier1LeverageRatio", "Tier1LeverageCapitalRatio", "TierOneLeverageCapitalToAverageAssets"),
 }
 
 

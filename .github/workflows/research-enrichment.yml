@@ -20,6 +20,16 @@ on:
       - "services/api/scripts/enrich_company_disclosures.py"
       - "services/api/scripts/ingest_massive_guidance.py"
       - "services/api/sql/research_completion.sql"
+      - "services/api/sql/research_evidence.sql"
+      - "services/api/scripts/refresh_insider_transactions.py"
+      - "services/api/scripts/refresh_official_documents.py"
+      - "services/api/scripts/refresh_public_ownership_actions.py"
+      - "services/api/scripts/refresh_corporate_actions.py"
+      - "services/api/scripts/refresh_macro_sources.py"
+      - "services/api/app/providers/investor_relations.py"
+      - "services/api/app/providers/macro.py"
+      - "services/api/app/research/evidence.py"
+      - "services/api/config/investor_relations.json"
       - ".github/workflows/research-enrichment.yml"
   workflow_run:
     workflows: ["SEC Fundamentals Refresh"]
@@ -43,6 +53,8 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

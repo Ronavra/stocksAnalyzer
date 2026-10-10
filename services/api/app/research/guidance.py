@@ -3,7 +3,7 @@ import re
 from html.parser import HTMLParser
 from hashlib import sha256
 
-PARSER_VERSION="explicit_annual_range_v2"
+PARSER_VERSION="explicit_fiscal_range_v3"
 
 
 class ReleaseText(HTMLParser):
@@ -44,12 +44,16 @@ def extract_guidance(html,company_id,event):
             continue
         if re.search(r"\b(no|not|withdraw\w*|suspend\w*)\b.{0,35}\b(guidance|outlook|forecast)\b",line,re.I):
             continue
-        if re.search(r"\bquarter(?:ly)?\b|\bQ[1-4]\b",line,re.I):
-            continue
+        fiscal_period='FY'
+        quarter_match=re.search(r'\bQ([1-4])\s*(?:of\s*)?(?:fiscal(?: year)?|FY)\s*(20\d{2})\b|\b(first|second|third|fourth) quarter\s+(?:of\s+)?fiscal(?: year)?\s+(20\d{2})\b',line,re.I)
+        has_quarter=bool(re.search(r"\bquarter(?:ly)?\b|\bQ[1-4]\b",line,re.I))
+        if has_quarter:
+            if not quarter_match or re.search(r'full[- ]year',line,re.I): continue
+            fiscal_period='Q'+(quarter_match.group(1) or str(('first','second','third','fourth').index(quarter_match.group(3).lower())+1))
         year_match=re.search(r"\b(?:full[- ]year|fiscal(?: year)?|FY)\s*(?:for\s*)?(20\d{2})\b|\b(20\d{2})\s+full[- ]year\b",line,re.I)
-        if not year_match:
+        if not year_match and not quarter_match:
             continue
-        year=int(year_match.group(1) or year_match.group(2))
+        year=int((quarter_match.group(2) or quarter_match.group(4)) if has_quarter else (year_match.group(1) or year_match.group(2)))
         if not int(event["filing_date"][:4])-1 <= year <= int(event["filing_date"][:4])+2:
             continue
         # Require a labelled numeric interval, rather than inferring a value
@@ -81,7 +85,7 @@ def extract_guidance(html,company_id,event):
                 low=float(low)*scale; high=float(high)*scale
                 previous_low=float(previous_low); previous_high=float(previous_high)
                 if low<=high and previous_low<=previous_high:
-                    ranges.append((year,metric,low,high,method,line[:700],previous_low,previous_high))
+                    ranges.append((year,metric,low,high,method,line[:700],previous_low,previous_high,fiscal_period))
                 continue
             match=re.search(pattern,line,re.I)
             if not match:
@@ -97,16 +101,16 @@ def extract_guidance(html,company_id,event):
             low=float(low)*scale; high=float(high)*scale
             if low>high:
                 continue
-            ranges.append((year,metric,low,high,method,line[:700],None,None))
+            ranges.append((year,metric,low,high,method,line[:700],None,None,fiscal_period))
     # Separate accounting methods; never mix GAAP and adjusted EPS. Multiple
     # contradictory ranges are left unparsed instead of choosing arbitrarily.
     out=[]
-    for year,metric,low,high,method,evidence,previous_low,previous_high in sorted(set(ranges),key=lambda r:tuple(str(x) for x in r)):
-        conflicts={(r[2],r[3]) for r in ranges if r[0]==year and r[1]==metric and r[4]==method}
+    for year,metric,low,high,method,evidence,previous_low,previous_high,fiscal_period in sorted(set(ranges),key=lambda r:tuple(str(x) for x in r)):
+        conflicts={(r[2],r[3]) for r in ranges if r[0]==year and r[1]==metric and r[4]==method and r[8]==fiscal_period}
         if len(conflicts)!=1:
             continue
-        identity=f"{event['accession_number']}:{year}:{metric}:{method}:{low}:{high}"
-        payload={"company_id":company_id,"event_date":event["filing_date"],"fiscal_year":year,"fiscal_period":"FY",
+        identity=f"{event['accession_number']}:{year}:{metric}:{method}:{low}:{high}"+('' if fiscal_period=='FY' else ':'+fiscal_period)
+        payload={"company_id":company_id,"event_date":event["filing_date"],"fiscal_year":year,"fiscal_period":fiscal_period,
                  "release_type":"official_filing","source":"sec_release","source_record_id":sha256(identity.encode()).hexdigest(),
                  "captured_at":event["observed_at"],"published_at":event["published_at"],"source_url":event["source_url"],
                  "evidence":{"metric":metric,"excerpt":evidence,"parser":PARSER_VERSION},

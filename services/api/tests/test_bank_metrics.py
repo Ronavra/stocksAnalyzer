@@ -42,3 +42,18 @@ def test_instance_accepts_only_explicit_standardized_capital_context():
     rows=facts['facts']['bank-capital']['CommonEquityTier1CapitalRatio']['units']['pure']
     assert len(rows)==1 and rows[0]['val']==.14 and rows[0]['capital_basis']=='standardized_consolidated'
     assert 'us-gaap' not in facts['facts'] and 'UnverifiedSolvencyRatio' not in facts['facts']['bank-capital']
+
+
+def test_actual_parent_capital_ratio_excludes_subsidiary_and_regulatory_minimum():
+    from app.providers.sec import instance_company_facts
+    xml=b'''<xbrl xmlns="http://www.xbrl.org/2003/instance" xmlns:d="http://xbrl.org/2006/xbrldi" xmlns:g="http://fasb.org/us-gaap/2026" xmlns:b="https://bank.example/2026">
+      <context id="parent"><entity><identifier>1000</identifier><segment><d:explicitMember dimension="srt:ConsolidatedEntitiesAxis">srt:ParentCompanyMember</d:explicitMember><d:explicitMember dimension="g:RiskWeightedAssetsCalculationMethodologyAxis">b:BaselIIIStandardizedMember</d:explicitMember></segment></entity><period><instant>2026-06-30</instant></period></context>
+      <context id="sub"><entity><identifier>1000</identifier><segment><d:explicitMember dimension="dei:LegalEntityAxis">b:BankNAMember</d:explicitMember><d:explicitMember dimension="g:RiskWeightedAssetsCalculationMethodologyAxis">b:BaselIIIStandardizedMember</d:explicitMember></segment></entity><period><instant>2026-06-30</instant></period></context>
+      <unit id="ratio"><measure>pure</measure></unit>
+      <b:CommonEquityTier1CapitaltoRiskWeightedAssets contextRef="parent" unitRef="ratio">0.142</b:CommonEquityTier1CapitaltoRiskWeightedAssets>
+      <b:CommonEquityTier1CapitaltoRiskWeightedAssets contextRef="sub" unitRef="ratio">0.150</b:CommonEquityTier1CapitaltoRiskWeightedAssets>
+      <g:BankingRegulationCommonEquityTierOneRiskBasedCapitalRatioCapitalAdequacyMinimum contextRef="parent" unitRef="ratio">0.115</g:BankingRegulationCommonEquityTierOneRiskBasedCapitalRatioCapitalAdequacyMinimum>
+    </xbrl>'''
+    facts=instance_company_facts(xml,1000,{'filed_date':'2026-08-06','form':'10-Q','accession_number':'a'})
+    values=supplemental_by_period(facts)['2026-06-30']
+    assert values['cet1_ratio']['value']==.142 and values['cet1_ratio']['basis']=='standardized_consolidated'

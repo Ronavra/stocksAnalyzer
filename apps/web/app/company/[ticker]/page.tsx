@@ -3,6 +3,7 @@ import {getCompany} from "@/lib/api";
 import AnalystConsensus from "../../AnalystConsensus";
 import {CompanyCoverage,SourceChecks} from "../../SourceCoverage";
 import EstimateConsensus from "../../EstimateConsensus";
+import ExtendedEvidence from "../../ExtendedEvidence";
 
 const val=(v:any)=>v==null?"—":typeof v==="number"?Number(v).toFixed(1):String(v);
 const ratio=(v:any)=>v==null?"—":Number(v).toFixed(2);
@@ -20,6 +21,7 @@ export default async function CompanyPage({params}:{params:Promise<{ticker:strin
  <CompanyCoverage coverage={data.source_coverage}/>
  <SourceChecks checks={data.source_checks}/>
  <EstimateConsensus history={data.estimate_snapshots||[]}/>
+ <ExtendedEvidence documents={data.official_documents||[]} events={data.evidence_events||[]} macro={data.macro_context}/>
 
  <section className="panel researchSummary"><p className="eyebrow">RESEARCH SUMMARY</p><h2>What matters now</h2>
  <div className="scoreGrid">

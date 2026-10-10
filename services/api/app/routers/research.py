@@ -142,6 +142,9 @@ def company(ticker:str):
     estimate_snapshots=(db.table("estimate_snapshots").select("fiscal_period_end,period_type,relative_period,eps_consensus,eps_low,eps_high,eps_analyst_count,revenue_consensus,revenue_low,revenue_high,revenue_analyst_count,eps_basis,eps_currency,revenue_currency,source,captured_at,captured_date")
                         .eq("company_id",c["id"]).order("captured_at",desc=True).limit(32).execute().data or [])
     source_coverage=load_coverage(db,company_id=c["id"])
+    documents=(db.table('research_documents').select('id,kind,title,source,source_url,published_at,observed_at,truncated').eq('company_id',c['id']).order('observed_at',desc=True).limit(20).execute().data or [])
+    evidence=(db.table('research_evidence_events').select('id,kind,event_date,published_at,observed_at,source,source_url,payload').eq('company_id',c['id']).order('observed_at',desc=True).limit(40).execute().data or [])
+    macro_context=db.rpc('research_macro_context',{}).execute().data
     ttm=(db.table("financial_metrics").select("period_end,filed_date,net_income,supplemental")
          .eq("company_id",c["id"]).eq("period_type","ttm").order("period_end",desc=True).limit(8).execute().data or [])
     bank=None
@@ -164,6 +167,7 @@ def company(ticker:str):
     return {"company":c,"snapshots":snapshots,"financials":financials,"analyst_assessment":assessment,"disclosures":disclosures,
             "news":news,"news_summary":news_summary(news),"guidance":guidance,"bank_metrics":bank,
             "estimate_snapshots":estimate_snapshots,"source_checks":source_coverage["source_checks"],"source_coverage":next(iter(source_coverage["companies"]),None),
+            'official_documents':documents,'evidence_events':evidence,'macro_context':macro_context,
             "model_forecasts":list(latest_forecasts.values()),
             "analyst_consensus":consensus_score(consensus,datetime.now(timezone.utc).date().isoformat())}
 

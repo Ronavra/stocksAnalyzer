@@ -25,7 +25,7 @@ function EquityChart({points,initial}:{points:Point[];initial:number}){
   {[low,(low+high)/2,high].map(v=><g key={v}><line x1={left} x2={width-right} y1={y(v)} y2={y(v)} stroke="#273247"/><text x={left-8} y={y(v)+4} textAnchor="end" fill="#8993a3" fontSize="11">{money(v)}</text></g>)}
   <polyline points={points.map((p,i)=>`${x(i)},${y(p.benchmark_equity)}`).join(" ")} fill="none" stroke="#91a6cb" strokeWidth="2"/>
   <polyline points={points.map((p,i)=>`${x(i)},${y(p.equity)}`).join(" ")} fill="none" stroke="#64d2a1" strokeWidth="2.5"/>
-  {points.map((p,i)=><circle key={p.date} cx={x(i)} cy={y(p.equity)} r="3" fill="#64d2a1"><title>{p.date}: portfolio {money(p.equity)}; SPY {money(p.benchmark_equity)}; cash {money(p.cash)}</title></circle>)}
+  {points.map((p,i)=><circle key={p.date} cx={x(i)} cy={y(p.equity)} r="3" fill="#64d2a1"><title>{`${p.date}: portfolio ${money(p.equity)}; SPY ${money(p.benchmark_equity)}; cash ${money(p.cash)}`}</title></circle>)}
   <text x={left} y={height-8} fill="#8993a3" fontSize="11">{points[0].date}</text>
   <text x={width-right} y={height-8} textAnchor="end" fill="#8993a3" fontSize="11">{points[points.length-1].date}</text>
  </svg><figcaption><span className="portfolioLegend">● Portfolio</span><span className="benchmarkLegend">● SPY buy and hold</span></figcaption></figure>;

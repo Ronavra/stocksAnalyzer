@@ -118,3 +118,7 @@ concept/unit, with availability bounded by the source filing. Missing intervals
 and conflicting overlaps reject the calculation. Short transition periods are
 never treated as twelve-month annual results. Diluted EPS is not derived by
 this interval fallback because its denominator changes between periods.
+
+### Originating macro sources during FRED outages
+
+A failed FRED CSV HTTP request opens a circuit for the remainder of the collector run. Six current series have official originating-agency fallbacks: New York Fed EFFR (`DFF`), Treasury 2/10-year par yields (`DGS2`/`DGS10`), and BLS seasonally adjusted CPI (`CUSR0000SA0`), unemployment (`LNS14000000`) and nonfarm payrolls (`CES0000000001`). Treasury/BLS bulk responses are reused within a run. These observations retain their agency source and actual capture time, with no invented vintage date. GDP, broad dollar and WTI remain unavailable if FRED is inaccessible; current agency responses do not fill ALFRED historical-vintage coverage.

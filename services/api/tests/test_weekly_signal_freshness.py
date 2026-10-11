@@ -42,10 +42,11 @@ class Db:
             status="already_published" if self.existing else "due"
             result=getattr(self,"cadence",{"status":status})
             return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": result})()})()
-        if name == "publish_recommendation_cohort":
+        if name in ("publish_recommendation_cohort","replace_recommendation_cohort"):
+            self.publication_rpc=name
             self.publication=params
             self.saved.extend(params["p_predictions"])
-            return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": {"status":"published"}})()})()
+            return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": {"status":"replaced" if name=="replace_recommendation_cohort" else "published"}})()})()
         assert name == "research_dashboard_candidates"
         return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": self.rows})()})()
 
@@ -183,4 +184,27 @@ def test_publication_clock_can_advance_while_ranking(monkeypatch):
     mock_finance(monkeypatch)
     monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
     assert weekly.generate(db)==[]
+    assert db.saved==[]
+
+
+def test_explicit_replacement_uses_one_transaction_and_expected_publication(monkeypatch):
+    existing={"model_version":"old-policy","published_at":"2026-09-30T12:00:00Z"}
+    db=Db([candidate(1,"2026-09-29")],existing=[existing])
+    mock_finance(monkeypatch)
+    monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
+    assert len(weekly.generate(db,replace_week="2026-09-29",reason="Correct total revenue sources"))==1
+    assert db.publication_rpc=="replace_recommendation_cohort"
+    assert db.publication["p_expected_version"]=="old-policy"
+    assert db.publication["p_expected_published_at"]==existing["published_at"]
+    assert len(db.saved)==3
+
+
+def test_replacement_refuses_wrong_week_and_empty_selection(monkeypatch):
+    db=Db([candidate(1,"2026-09-29")],existing=[{"model_version":"old","published_at":"2026-09-30T12:00:00Z"}])
+    with pytest.raises(RuntimeError,match="latest market/setup date"):
+        weekly.generate(db,replace_week="2026-09-28",reason="Correct total revenue sources")
+    mock_finance(monkeypatch,eligible=False)
+    monkeypatch.setattr(weekly,"recent_earnings",lambda *_:{})
+    with pytest.raises(RuntimeError,match="Empty replacement refused"):
+        weekly.generate(db,replace_week="2026-09-29",reason="Correct total revenue sources")
     assert db.saved==[]

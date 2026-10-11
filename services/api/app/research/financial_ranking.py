@@ -10,12 +10,12 @@ from datetime import date, datetime, timezone, timedelta
 from math import isfinite
 
 from .earnings_catalysts import catalyst_adjustment
-from .financial_quality import MAX_TTM_AGE_DAYS
+from .financial_quality import MAX_TTM_AGE_DAYS, financial_anomalies, compatible_revenue_basis
 from .analyst_consensus import load_snapshots, consensus_score
 from .observations import close_cutoff, available as observed_available, member_asof
 
-POLICY_VERSION="financial-analyst-priority-v3"
-SIGNAL_VERSION="weekly-signal-v8-bank-event-risk"
+POLICY_VERSION="financial-analyst-priority-v4"
+SIGNAL_VERSION="weekly-signal-v9-verified-revenue"
 WEIGHTS={"financial":.45,"technical":.35,"analyst":.10,"earnings":.10}
 MAX_AUDIT_AGE_HOURS=48
 MIN_FACTOR_COVERAGE=.80
@@ -139,15 +139,23 @@ def financial_snapshot(rows,asof,audit_entry=None,live=True,point_in_time=False)
         return None,"missing_core_financials"
     if number(latest.get("revenue"))<=0:
         return None,"invalid_revenue"
+    if financial_anomalies(latest):
+        return None,"financial_values_require_review"
     end=date.fromisoformat(latest["period_end"])
     previous=[r for r in available if 300<=(end-date.fromisoformat(r["period_end"])).days<=450]
     prior=min(previous,key=lambda r:(abs((end-date.fromisoformat(r["period_end"])).days-365),
                                    -(datetime.fromisoformat(r["observed_at"]).timestamp() if r.get("observed_at") else date.fromisoformat(r["filed_date"]).toordinal())),default=None)
+    if prior and (financial_anomalies(prior) or not compatible_revenue_basis(latest,prior)):
+        prior = None
     return {"latest":latest,"previous":prior,"period_age_days":age},None
 
 
 def factors(snapshot,price):
     cur=snapshot["latest"]; prev=snapshot.get("previous") or {}
+    if financial_anomalies(cur):
+        return {key:None for key in set(GENERAL_FACTORS)|set(FINANCIAL_FACTORS)|set(BANK_FACTORS)}
+    if financial_anomalies(prev) or not compatible_revenue_basis(cur,prev):
+        prev = {}
     rev=number(cur.get("revenue")); eps=number(cur.get("eps_diluted")); fcf=number(cur.get("free_cash_flow"))
     old_rev=number(prev.get("revenue")); old_eps=number(prev.get("eps_diluted"))
     op_margin=ratio(cur.get("operating_income"),rev); net_margin=ratio(cur.get("net_income"),rev)

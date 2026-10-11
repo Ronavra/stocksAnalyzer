@@ -16,6 +16,7 @@ ISRAEL = ZoneInfo("Asia/Jerusalem")
 
 
 def refresh_plan(db, event_name, now=None, force=False):
+    db.rpc("expire_daily_market_refreshes").execute()
     if event_name == "workflow_dispatch" and force:
         return {"run_market":True,"run_sources":True}
 

@@ -33,6 +33,11 @@ class Db:
     def __init__(self, starts):
         self.query = Query([{ "id":1,"started_at":r.isoformat(),"status":"success"} if isinstance(r,datetime) else r for r in starts])
 
+    def rpc(self,name):
+        assert name=="expire_daily_market_refreshes"
+        self.expiration_checked=True
+        return type("Rpc",(),{"execute":lambda _:None})()
+
     def table(self, _name):
         return self.query
 
@@ -57,7 +62,7 @@ def test_manual_dispatch_skips_after_daily_started():
 
 def test_manual_dispatch_can_force_an_explicit_rerun():
     now = datetime(2026, 9, 29, 5, 17, tzinfo=timezone.utc)
-    assert should_run(None, "workflow_dispatch", now, force=True)
+    assert should_run(Db([]), "workflow_dispatch", now, force=True)
 
 
 def test_early_manual_run_is_counted_on_same_israel_day():
@@ -94,3 +99,10 @@ def test_active_forced_market_run_blocks_sources_even_after_earlier_success():
     rows=[{"started_at":"2026-09-29T05:00:00+00:00","status":"success"},
           {"started_at":"2026-09-29T07:00:00+00:00","status":"running"}]
     assert refresh_plan(Db(rows),"schedule",now)=={"run_market":False,"run_sources":False}
+
+
+def test_expiration_runs_even_when_success_skips_new_collection():
+    now=datetime(2026,9,29,8,tzinfo=timezone.utc)
+    db=Db([datetime(2026,9,29,5,tzinfo=timezone.utc)])
+    assert not should_run(db,"schedule",now)
+    assert db.expiration_checked

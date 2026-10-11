@@ -1,0 +1,69 @@
+name: Critical Financial Weekly Recovery
+on:
+  workflow_dispatch:
+    inputs:
+      signal_date:
+        description: Latest unstarted cohort date to replace
+        required: true
+        type: string
+      reason:
+        description: Auditable correction reason
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths: [".github/workflows/critical-weekly-recovery.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: stocks-analyzer-critical-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+      # The push is the explicitly authorized one-time recovery. The RPC rejects
+      # stale, evaluated and already-replaced versions; future retries are safe.
+      RECOVERY_DATE: ${{ inputs.signal_date || '2026-10-09' }}
+      RECOVERY_REASON: ${{ inputs.reason || 'Correct total SEC revenue selection and reject incompatible TTM sources' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Close expired daily refresh leases
+        run: python -c "from dotenv import load_dotenv; load_dotenv(); from app.db.client import get_supabase; print(get_supabase().rpc('expire_daily_market_refreshes').execute().data)"
+      - name: Re-extract every company from official SEC facts
+        run: python scripts/refresh_research_sources.py --sec-only --max-age-hours 0
+      - name: Refresh earnings evidence
+        run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
+      - name: Refresh analyst consensus
+        continue-on-error: true
+        run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
+      - name: Verify observed financial feature runtime
+        run: python scripts/check_predictive_feature_health.py
+      - name: Preview corrected weekly selection
+        run: python scripts/generate_weekly_signals.py --dry-run
+      - name: Replace the authorized current week atomically
+        run: python scripts/generate_weekly_signals.py --replace-week "$RECOVERY_DATE" --reason "$RECOVERY_REASON"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: critical-financial-recovery-audit
+          path: |
+            services/api/sec_fundamentals_audit.json
+            services/api/financial_selection.json
+            services/api/predictive_feature_health.json
+          if-no-files-found: ignore

@@ -54,6 +54,8 @@ def attach_supplemental(rows, data):
         values = {k: v for k, v in facts.get(row["period_end"], {}).items()
                   if v["filed_date"] <= (row.get("filed_date") or "")}
         row["supplemental"] = values
+        if row.get("field_sources"):
+            values["field_sources"] = row["field_sources"]
         if row.get("reported_debt_basis"):
             values["debt_basis"]=row["reported_debt_basis"]
         # Recover an explicitly reported full long-term total plus short-term

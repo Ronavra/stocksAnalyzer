@@ -84,3 +84,41 @@ def test_ttm_refuses_to_mix_contract_subtotals_with_total_revenue():
     rec=build_ttm_rows([],rows)[0]
     assert rec["revenue"]==28000
     assert len(rec["supplemental"]["field_sources"]["revenue"]["inputs"])==4
+
+
+def component_data(tags,filings=None):
+    nodes={}
+    for tag,val in tags.items():
+        row=fact("2026-04-01","2026-06-30","Q2",val,(filings or {}).get(tag,"2026-08-01"))
+        row["accn"]="test-filing"
+        nodes[tag]={"units":{"USD":[row]}}
+    return {"facts":{"us-gaap":nodes}}
+
+
+def test_bank_and_lease_totals_use_disjoint_components_from_same_filing():
+    for tags,total,source in (({"InterestIncomeExpenseNet":1792,"NoninterestIncome":740,
+          "RevenueFromContractWithCustomerExcludingAssessedTax":442,"NetIncomeLoss":700},2532,"BankNetRevenueFromReportedComponents"),
+        ({"OperatingLeaseLeaseIncome":392944,"RevenueFromContractWithCustomerExcludingAssessedTax":3131,"NetIncomeLoss":70000},396075,"LeaseAndContractRevenueFromReportedComponents")):
+        data=component_data(tags)
+        row=quarter_facts_by_period(data)[0]
+        assert row["revenue"]==total
+        assert row["field_sources"]["revenue"]["tag"]==source
+        assert len(row["field_sources"]["revenue"]["components"])==2
+        assert len(data["facts"]["us-gaap"])==len(tags)
+
+
+def test_components_never_mix_filings_or_override_an_explicit_total():
+    tags={"InterestIncomeExpenseNet":1792,"NoninterestIncome":740,
+          "RevenueFromContractWithCustomerExcludingAssessedTax":442,"NetIncomeLoss":700}
+    data=component_data(tags,{"NoninterestIncome":"2026-08-02"})
+    assert quarter_facts_by_period(data)[0]["revenue"]==442
+    data=component_data({**tags,"Revenues":2600},{"Revenues":"2026-07-30"})
+    assert quarter_facts_by_period(data)[0]["revenue"]==2600
+
+
+def test_ambiguous_component_cannot_manufacture_a_total():
+    data=component_data({"InterestIncomeExpenseNet":1792,"NoninterestIncome":740,
+                        "RevenueFromContractWithCustomerExcludingAssessedTax":442,"NetIncomeLoss":700})
+    rows=data["facts"]["us-gaap"]["NoninterestIncome"]["units"]["USD"]
+    rows.append({**rows[0],"val":999})
+    assert quarter_facts_by_period(data)[0]["revenue"]==442

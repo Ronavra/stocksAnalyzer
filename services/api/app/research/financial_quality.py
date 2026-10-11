@@ -25,6 +25,9 @@ def financial_anomalies(row):
 
 def compatible_revenue_basis(left, right):
     families={"Revenues":"total","SalesRevenueNet":"total",
+              "RevenuesNetOfInterestExpense":"total",
+              "BankNetRevenueFromReportedComponents":"total",
+              "LeaseAndContractRevenueFromReportedComponents":"total",
               "RevenueFromContractWithCustomerExcludingAssessedTax":"contract",
               "RevenueFromContractWithCustomerIncludingAssessedTax":"contract"}
     def tag(row):

@@ -70,6 +70,9 @@ def revenue_source(row):
 def compatible_revenue(rows):
     # Never subtract fee/contract subtotals from total insurance/lease revenue.
     families={"Revenues":"total", "SalesRevenueNet":"total",
+              "RevenuesNetOfInterestExpense":"total",
+              "BankNetRevenueFromReportedComponents":"total",
+              "LeaseAndContractRevenueFromReportedComponents":"total",
               "RevenueFromContractWithCustomerExcludingAssessedTax":"contract",
               "RevenueFromContractWithCustomerIncludingAssessedTax":"contract"}
     tags=[revenue_source(row).get("tag") for row in rows]

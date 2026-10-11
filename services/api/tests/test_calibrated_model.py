@@ -117,3 +117,17 @@ def test_final_holdout_rejects_reversed_signal(monkeypatch):
     assert diagnostics["selection_rows"]>=1000
     assert diagnostics["oof_rows"]>=1000
     assert models[5].expected_return({"return_1d":1}) is None
+
+
+def test_observed_prior_missing_eps_does_not_crash_feature_preparation():
+    base={"revenue":100,"net_income":10,"operating_income":15,"free_cash_flow":12,
+          "total_debt":20,"cash":5,"shares_outstanding":10,"_raw_financial":True}
+    rows=[{**base,"period_end":"2026-06-30","filed_date":"2026-08-01","eps_diluted":2,
+           "observed_at":"2026-10-03T00:00:00Z"},
+          {**base,"period_end":"2025-06-30","filed_date":"2025-08-01","eps_diluted":None,
+           "observed_at":"2026-10-03T00:00:00Z"}]
+    values=model.observed_fundamental_asof(rows,"2026-10-09")
+    assert values["_ttm_eps"]==2
+    assert values["fund_eps_growth_yoy"] is None
+    assert values["fund_eps_growth_accel"] is None
+    assert values["fund_net_margin"]==.1

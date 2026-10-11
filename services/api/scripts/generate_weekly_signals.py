@@ -22,7 +22,7 @@ def current_candidates(rows):
     return signal_date,[r for r in rows if str(r.get("price_date") or "")==signal_date
                         and str(r.get("as_of_date") or "")==signal_date]
 
-def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
+def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=None,reason=None):
     if not 1<=top<=5:
         raise ValueError("Weekly shortlist size must be between one and five")
     rows=db.rpc("research_dashboard_candidates").execute().data or []
@@ -31,7 +31,17 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
     signal_date,rows=current_candidates(rows)
     if not rows:
         raise RuntimeError(f"No current setup snapshots for the latest price date {signal_date}")
-    if not dry_run and not publication_due(db,signal_date):
+    existing=None
+    if replace_week:
+        if replace_week!=signal_date:
+            raise RuntimeError("Replacement must match the latest market/setup date")
+        if not reason or len(reason.strip())<10:
+            raise ValueError("Replacement requires a documented reason")
+        cohorts=db.table("recommendation_cohorts").select("model_version,published_at").eq("signal_date",signal_date).limit(1).execute().data or []
+        if not cohorts:
+            raise RuntimeError("No existing weekly cohort to replace")
+        existing=cohorts[0]
+    if not dry_run and not replace_week and not publication_due(db,signal_date):
         return []
     earnings=recent_earnings(db,rows)
     upcoming=upcoming_earnings(db,rows,signal_date)
@@ -72,14 +82,20 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False):
             records.append(rec)
         out.append((row.get("ticker"),p["score"],row.get("current_price"),"financial_priority"))
     if not dry_run:
-        result=db.rpc("publish_recommendation_cohort",{
+        if replace_week and not records:
+            raise RuntimeError("Empty replacement refused; existing publication preserved")
+        params={
             "p_signal_date":signal_date,"p_model_version":SIGNAL_VERSION,
             "p_horizons":list(horizons),"p_predictions":records,"p_metadata":report,
-        }).execute().data
+        }
+        if existing:
+            params.update(p_expected_version=existing["model_version"],
+                          p_expected_published_at=existing["published_at"],p_reason=reason)
+        result=db.rpc("replace_recommendation_cohort" if existing else "publish_recommendation_cohort",params).execute().data
         if isinstance(result,dict) and result.get("status") in ("already_published","not_due"):
             print("Another run advanced the publication clock; preserving its selection:",json.dumps(result))
             return []
-        if not isinstance(result,dict) or result.get("status")!="published":
+        if not isinstance(result,dict) or result.get("status")!=("replaced" if existing else "published"):
             raise RuntimeError(f"Recommendation publication blocked: {result}")
     return out
 
@@ -90,8 +106,10 @@ def main():
     ap.add_argument("--horizons",nargs="+",type=int,choices=[5,10,20],default=[5,10,20])
     ap.add_argument("--force",action="store_true",help="Deprecated: completed cohorts always stay frozen; use --dry-run for a fresh preview")
     ap.add_argument("--dry-run",action="store_true",help="Calculate the new shortlist without writing predictions")
+    ap.add_argument("--replace-week",help="Explicitly replace the latest unstarted cohort for this YYYY-MM-DD market close")
+    ap.add_argument("--reason",help="Audit reason for the replacement")
     a=ap.parse_args()
-    picks=generate(get_supabase(),a.top,tuple(a.horizons),a.force,a.dry_run)
+    picks=generate(get_supabase(),a.top,tuple(a.horizons),a.force,a.dry_run,a.replace_week,a.reason)
     print(f"{'Previewed' if a.dry_run else 'Saved'} {len(picks)} candidates across horizons {a.horizons}")
     for i,(ticker,score,price,mode) in enumerate(picks,1):
         print(f"{i}. {ticker} research_score={score:.1f} entry={price} ranking={mode}")

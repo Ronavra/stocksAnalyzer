@@ -2,6 +2,37 @@
 
 from datetime import date
 from collections import Counter
+from math import isfinite
+
+
+def financial_anomalies(row):
+    """Extreme ratios need source review, including legitimate exceptional gains."""
+    try:
+        revenue = float(row.get("revenue"))
+    except (ValueError, TypeError):
+        return []
+    if not isfinite(revenue) or revenue <= 0:
+        return []
+    issues = []
+    for key in ("net_income", "operating_income"):
+        try:
+            value = float(row.get(key))
+        except (ValueError, TypeError):
+            continue
+        if not isfinite(value) or abs(value) > revenue:
+            issues.append(key + "_exceeds_revenue")
+    return issues
+
+def compatible_revenue_basis(left, right):
+    families={"Revenues":"total","SalesRevenueNet":"total",
+              "RevenueFromContractWithCustomerExcludingAssessedTax":"contract",
+              "RevenueFromContractWithCustomerIncludingAssessedTax":"contract"}
+    def tag(row):
+        sources=row.get("field_sources") or (row.get("supplemental") or {}).get("field_sources") or {}
+        return (sources.get("revenue") or {}).get("tag")
+    a,b=tag(left),tag(right)
+    return not a or not b or families.get(a,a)==families.get(b,b)
+
 
 CORE_FIELDS=("revenue","net_income","eps_diluted","operating_income",
              "free_cash_flow","cash","total_debt","shares_outstanding")
@@ -34,12 +65,15 @@ def company_quality(company,annual,quarters,ttm,latest_report,asof=None):
         status="ttm_period_old"
     else:
         status="current"
+    anomalies = financial_anomalies(latest_ttm or {})
+    if anomalies and status == "current":
+        status = "financial_values_require_review"
     return {"ticker":company["ticker"],"company_id":company["id"],"status":status,
             "latest_report":latest_report,"latest_parsed_period":latest_parsed,
             "ttm_period":period,"ttm_filed_date":(latest_ttm or {}).get("filed_date"),
             "ttm_age_days":age,"missing_fields":missing,"core_complete":not missing,
             "required_profile":'bank' if is_bank else 'general','missing_required_fields':required_missing,
-            "profile_complete":not required_missing}
+            "profile_complete":not required_missing,"anomalies":anomalies}
 
 
 def summarize_quality(rows):

@@ -63,6 +63,38 @@ def validate_full_refresh(total, successful, ttm_companies, ttm_fcf_companies):
 def d(v):
     return date.fromisoformat(v) if isinstance(v,str) else v
 
+def revenue_source(row):
+    return ((row.get("field_sources") or (row.get("supplemental") or {}).get("field_sources") or {}).get("revenue") or {})
+
+
+def compatible_revenue(rows):
+    # Never subtract fee/contract subtotals from total insurance/lease revenue.
+    families={"Revenues":"total", "SalesRevenueNet":"total",
+              "RevenueFromContractWithCustomerExcludingAssessedTax":"contract",
+              "RevenueFromContractWithCustomerIncludingAssessedTax":"contract"}
+    tags=[revenue_source(row).get("tag") for row in rows]
+    known={families.get(tag,tag) for tag in tags if tag}
+    return len(known)<=1
+
+
+def derived_revenue_source(rows, method):
+    sources=[revenue_source(row) for row in rows]
+    if not any(sources):
+        return {}
+    return {"tag":next((s.get("tag") for s in sources if s.get("tag")),None),
+            "method":method, "inputs":sources}
+
+
+def derived_supplemental(latest, rows, method):
+    values=dict(latest.get("supplemental") or {})
+    sources=dict(values.get("field_sources") or {})
+    source=derived_revenue_source(rows,method)
+    if source:
+        sources["revenue"]=source
+        values["field_sources"]=sources
+    return values
+
+
 def build_ttm_rows(annual_rows, quarter_rows):
     # Derive fiscal Q4 from the annual filing minus the three 10-Q quarters,
     # then build rolling four-quarter TTM rows. filed_date is the latest filing
@@ -85,11 +117,11 @@ def build_ttm_rows(annual_rows, quarter_rows):
             q4={"period_end":a["period_end"],"filed_date":a.get("filed_date"),"accn":a.get("accn")}
             for field in DURATION_FIELDS:
                 av=a.get(field); vals=[q.get(field) for q in candidates]
-                q4[field]=float(av)-sum(float(v) for v in vals) if av is not None and all(v is not None for v in vals) else None
+                q4[field]=float(av)-sum(float(v) for v in vals) if av is not None and all(v is not None for v in vals) and (field!="revenue" or compatible_revenue([a]+candidates)) else None
             q4["cash"]=a.get("cash")
             q4["total_debt"]=a.get("total_debt")
             q4["shares_outstanding"]=a.get("shares_outstanding")
-            q4["supplemental"]=a.get("supplemental") or {}
+            q4["supplemental"]=derived_supplemental(a,[a]+candidates,"annual_minus_first_three_quarters")
             existing=next((q for q in quarters if q["period_end"]==q4["period_end"]),None)
             if existing:
                 for key,value in q4.items():
@@ -112,11 +144,11 @@ def build_ttm_rows(annual_rows, quarter_rows):
         rec={"period_end":window[-1]["period_end"]}
         for field in DURATION_FIELDS:
             vals=[q.get(field) for q in window]
-            rec[field]=sum(float(v) for v in vals) if all(v is not None for v in vals) else None
+            rec[field]=sum(float(v) for v in vals) if all(v is not None for v in vals) and (field!="revenue" or compatible_revenue(window)) else None
         rec["cash"]=window[-1].get("cash")
         rec["total_debt"]=window[-1].get("total_debt")
         rec["shares_outstanding"]=window[-1].get("shares_outstanding")
-        rec["supplemental"]=window[-1].get("supplemental") or {}
+        rec["supplemental"]=derived_supplemental(window[-1],window,"four_quarter_sum")
         filed=[q.get("filed_date") for q in window if q.get("filed_date")]
         rec["filed_date"]=max(filed) if filed else None
         rec["accn"]=window[-1].get("accn")
@@ -150,14 +182,14 @@ def build_ttm_rows(annual_rows, quarter_rows):
             used=False
             for field in DURATION_FIELDS:
                 vals=[q.get(field) for q in now+before]
-                if rec.get(field) is None and a.get(field) is not None and all(v is not None for v in vals):
+                if rec.get(field) is None and a.get(field) is not None and all(v is not None for v in vals) and (field!="revenue" or compatible_revenue([a]+now+before)):
                     rec[field]=float(a[field])+sum(float(q[field]) for q in now)-sum(float(q[field]) for q in before)
                     used=True
             for field in ("cash","total_debt","shares_outstanding"):
                 if rec.get(field) is None:
                     rec[field]=now[-1].get(field)
-            rec["supplemental"]=now[-1].get("supplemental") or {}
             if used:
+                rec["supplemental"]=derived_supplemental(now[-1],[a]+now+before,"annual_plus_current_ytd_minus_prior_ytd")
                 rec["filed_date"]=max([rec.get("filed_date") or "",a.get("filed_date") or ""]+[q.get("filed_date") or "" for q in now+before])
                 rec["accn"]=now[-1].get("accn")
     out={end:rec for end,rec in out.items() if sum(rec.get(k) is not None for k in ("revenue","operating_income","net_income","eps_diluted"))>=2}

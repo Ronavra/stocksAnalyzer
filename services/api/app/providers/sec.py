@@ -199,10 +199,11 @@ def merge_company_facts(original,additional):
 
 
 def _fact_priority(filed,alias_index,tag,key):
-    # For banks, contract revenue can cover fees alone. Prefer explicitly
-    # reported total revenue net of interest when available for that period.
-    bank_total=key=="revenue" and tag=="RevenuesNetOfInterestExpense"
-    return (bank_total,filed or "",-alias_index)
+    # Contract revenue excludes insurance premiums, leases and interest.
+    # A later comparative fee subtotal must never displace a reported total.
+    total_priority = {"RevenuesNetOfInterestExpense": 3, "Revenues": 2,
+                      "SalesRevenueNet": 2}.get(tag, 0) if key == "revenue" else 0
+    return (total_priority,filed or "",-alias_index)
 
 
 def reported_debt(rec):
@@ -294,7 +295,7 @@ def facts_by_period(data: dict, years: int = 10):
                                 continue
                             if not 300 <= days <= 430:
                                 continue
-                        found.append({**x,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
+                        found.append({**x,"_tag":tag,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
         return found
 
     out = {}
@@ -305,6 +306,7 @@ def facts_by_period(data: dict, years: int = 10):
             marker = "_filed_" + key
             if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
+                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn")}
                 rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):
@@ -395,7 +397,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
                                 continue
                             if not 60 <= days <= 120:
                                 continue
-                        found.append({**x,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
+                        found.append({**x,"_tag":tag,"_priority":_fact_priority(x.get("filed"),alias_index,tag,key)})
         return found
 
     out = {}
@@ -406,6 +408,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             marker = "_filed_" + key
             if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
+                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn")}
                 rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):

@@ -11,11 +11,15 @@ from app.db.client import get_supabase
 from scripts.validate_daily_cycle import validate
 
 PY=sys.executable
+RUN_DEADLINE=time.monotonic()+180*60
 
 def run(name,*args):
     print(f"\n=== {name} ===",flush=True)
     started=time.monotonic()
-    subprocess.run([PY,str(HERE/name),*args],check=True)
+    remaining=RUN_DEADLINE-time.monotonic()
+    if remaining<=0:
+        raise TimeoutError("Daily refresh exceeded its 180-minute execution budget")
+    subprocess.run([PY,str(HERE/name),*args],check=True,timeout=remaining)
     return round(time.monotonic()-started,2)
 
 if __name__=="__main__":
@@ -49,7 +53,7 @@ if __name__=="__main__":
                 "latest_feature_date":check["latest_feature_date"],"price_companies":check["price_companies"],
                 "feature_companies":check["feature_companies"],"error_message":check["error_message"],"metadata":metadata}
         if run_id:
-            db.table("pipeline_runs").update(update).eq("id",run_id).execute()
+            db.table("pipeline_runs").update(update).eq("id",run_id).eq("status","running").execute()
         if not check["ok"]:
             raise RuntimeError(check["error_message"])
         print(f"\nDaily market refresh validated successfully. timings={timings}")
@@ -59,6 +63,6 @@ if __name__=="__main__":
                 "price_companies","feature_companies")} if check else {}
             db.table("pipeline_runs").update({"finished_at":datetime.now(timezone.utc).isoformat(),"status":"error",
                 "error_message":str(exc)[:2000],**details,"metadata":{"timings":timings,
-                    "freshness":check}}).eq("id",run_id).execute()
+                    "freshness":check}}).eq("id",run_id).eq("status","running").execute()
         traceback.print_exc()
         raise

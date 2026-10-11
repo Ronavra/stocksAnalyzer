@@ -142,3 +142,23 @@ def test_report_in_execution_window_excludes_candidate_without_changing_weights(
     assert 10 not in [p['row']['company_id'] for p in picks]
     assert summary['rejected']['earnings_within_primary_horizon']==1
     assert summary['weights']=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}
+
+
+def test_suspicious_revenue_cannot_enter_shortlist_or_peer_pool():
+    inputs,rows=inputs_and_candidates()
+    inputs["metrics"][10][0]["revenue"]=1
+    scored,rejected=finance.financial_scores(rows,inputs,ASOF,now=NOW)
+    assert 10 not in scored
+    assert rejected[10]=="financial_values_require_review"
+    snapshot={"latest":inputs["metrics"][10][0],"previous":None}
+    assert all(value is None for value in finance.factors(snapshot,10).values())
+
+
+def test_year_over_year_growth_does_not_compare_partial_and_total_revenue():
+    inputs,_=inputs_and_candidates()
+    rows=inputs["metrics"][1]
+    rows[0]["supplemental"]={"field_sources":{"revenue":{"tag":"Revenues"}}}
+    rows[1]["supplemental"]={"field_sources":{"revenue":{"tag":"RevenueFromContractWithCustomerExcludingAssessedTax"}}}
+    snapshot,error=finance.financial_snapshot(rows,ASOF,inputs["audit"]["companies"][0])
+    assert error is None and snapshot["previous"] is None
+    assert finance.factors(snapshot,10)["revenue_growth"] is None

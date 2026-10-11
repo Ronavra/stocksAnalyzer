@@ -52,3 +52,35 @@ def test_ytd_derivation_never_uses_a_later_amended_filing():
     q2=next(x for x in quarter_facts_by_period(data) if x["period_end"]=="2025-06-30")
     assert q2["operating_cash_flow"]==150
     assert q2["free_cash_flow"]==115
+
+
+def test_total_revenue_wins_over_later_fee_subtotal_for_same_period():
+    from app.providers.sec import facts_by_period
+    tags={}
+    for tag,value,filed in (("Revenues",7263,"2026-08-01"),
+                            ("RevenueFromContractWithCustomerExcludingAssessedTax",111,"2026-08-02")):
+        tags[tag]={"units":{"USD":[fact("2026-04-01","2026-06-30","Q2",value,filed),
+            fact("2025-01-01","2025-12-31","FY",28000 if value==7263 else 1506,filed,"10-K")]}}
+    tags["NetIncomeLoss"]={"units":{"USD":[fact("2026-04-01","2026-06-30","Q2",1000,"2026-08-01"),
+        fact("2025-01-01","2025-12-31","FY",4000,"2026-08-01","10-K")]}}
+    data={"facts":{"us-gaap":tags}}
+    quarter=quarter_facts_by_period(data)[0]
+    annual=facts_by_period(data)[0]
+    assert quarter["revenue"]==7263 and annual["revenue"]==28000
+    assert quarter["field_sources"]["revenue"]["tag"]=="Revenues"
+
+
+def test_ttm_refuses_to_mix_contract_subtotals_with_total_revenue():
+    rows=[]
+    for end,tag,value in (("2025-09-30","Revenues",7000),("2025-12-31","Revenues",7000),
+                           ("2026-03-31","Revenues",7000),("2026-06-30","RevenueFromContractWithCustomerExcludingAssessedTax",100)):
+        rows.append({"period_end":end,"filed_date":end,"revenue":value,"net_income":1000,"eps_diluted":1,
+            "supplemental":{"field_sources":{"revenue":{"tag":tag,"end":end}}}})
+    rec=build_ttm_rows([],rows)[0]
+    assert rec["revenue"] is None
+    assert rows[-1]["supplemental"]["field_sources"]["revenue"].get("method") is None
+    rows[-1]["supplemental"]["field_sources"]["revenue"]["tag"]="Revenues"
+    rows[-1]["revenue"]=7000
+    rec=build_ttm_rows([],rows)[0]
+    assert rec["revenue"]==28000
+    assert len(rec["supplemental"]["field_sources"]["revenue"]["inputs"])==4

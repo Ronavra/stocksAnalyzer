@@ -32,3 +32,24 @@ end $$;
 revoke all on function public.claim_daily_market_refresh(boolean) from public,anon,authenticated;
 grant execute on function public.claim_daily_market_refresh(boolean) to service_role;
 
+-- Older deployed workers must also be unable to resurrect an expired lease.
+create or replace function public.guard_daily_refresh_lease()
+returns trigger language plpgsql security invoker set search_path='' as $$
+begin
+ if old.pipeline='daily_market_research' then
+  if old.metadata->>'lease_expired'='true' then
+   return old;
+  end if;
+  if old.status='running' and old.started_at<=clock_timestamp()-interval '195 minutes' then
+   new.status='error';
+   new.finished_at=clock_timestamp();
+   new.error_message='Daily refresh lease expired after 195 minutes; safe to retry';
+   new.metadata=coalesce(new.metadata,'{}'::jsonb)||jsonb_build_object('lease_expired',true);
+  end if;
+ end if;
+ return new;
+end $$;
+drop trigger if exists daily_refresh_lease_guard on public.pipeline_runs;
+create trigger daily_refresh_lease_guard before update on public.pipeline_runs
+ for each row execute function public.guard_daily_refresh_lease();
+revoke all on function public.guard_daily_refresh_lease() from public,anon,authenticated;

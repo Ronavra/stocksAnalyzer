@@ -90,6 +90,8 @@ def test_expiration_closes_yesterday_orphan_without_breaking_active_claim(pg):
     pg.execute("INSERT INTO pipeline_runs(pipeline,status,started_at,metadata) VALUES('daily_market_research','running',now()-interval '1 day','{\"stage\":\"prices\"}')")
     assert pg.execute("select expire_daily_market_refreshes()").fetchone()[0]==1
     assert pg.execute("select status,metadata->>'lease_expired',metadata->>'stage' from pipeline_runs").fetchone()==('error','true','prices')
+    pg.execute("update pipeline_runs set status='success',metadata='{}'")
+    assert pg.execute("select status,metadata->>'lease_expired' from pipeline_runs").fetchone()==('error','true')
     claim=pg.execute("select claim_daily_market_refresh(false)").fetchone()[0]
     assert claim['run']
     assert pg.execute("select claim_daily_market_refresh(true)").fetchone()[0]=={'run':False}

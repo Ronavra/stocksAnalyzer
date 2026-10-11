@@ -16,7 +16,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: stocks-analyzer-market-data
+  group: stocks-analyzer-critical-recovery
   cancel-in-progress: false
 jobs:
   recover:

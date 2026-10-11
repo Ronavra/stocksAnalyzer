@@ -198,11 +198,48 @@ def merge_company_facts(original,additional):
     return merged
 
 
+COMPOSITE_REVENUE_TAGS=("BankNetRevenueFromReportedComponents","LeaseAndContractRevenueFromReportedComponents")
+
+
+def revenue_facts(data):
+    """Combine disjoint reported components only within one filing and interval."""
+    facts=dict((data.get("facts") or {}).get("us-gaap") or {})
+    pairs=((COMPOSITE_REVENUE_TAGS[0],"InterestIncomeExpenseNet","NoninterestIncome"),
+           (COMPOSITE_REVENUE_TAGS[1],"OperatingLeaseLeaseIncome","RevenueFromContractWithCustomerExcludingAssessedTax"),
+           (COMPOSITE_REVENUE_TAGS[1],"OperatingLeaseLeaseIncome","RevenueFromContractWithCustomerIncludingAssessedTax"))
+    def indexed(tag):
+        out={}
+        for row in ((facts.get(tag) or {}).get("units") or {}).get("USD") or []:
+            if not row.get("start") or not row.get("end") or not row.get("filed") or not row.get("accn"):
+                continue
+            try:
+                value=float(row["val"])
+            except (KeyError,ValueError,TypeError):
+                continue
+            if not math.isfinite(value):
+                continue
+            key=tuple(row.get(k) for k in ("start","end","filed","accn","form"))
+            out.setdefault(key,[]).append(row)
+        return out
+    used=set()
+    for target,left,right in pairs:
+        a,b=indexed(left),indexed(right)
+        for key in a.keys() & b.keys():
+            if (target,key) in used or len({float(x['val']) for x in a[key]})!=1 or len({float(x['val']) for x in b[key]})!=1:
+                continue
+            row={**a[key][0],"val":float(a[key][0]["val"])+float(b[key][0]["val"]),
+                 "source_components":[{"tag":left,"value":a[key][0]["val"]},{"tag":right,"value":b[key][0]["val"]}],
+                 "method":"sum_disjoint_reported_components"}
+            facts.setdefault(target,{"units":{"USD":[]}})["units"]["USD"].append(row)
+            used.add((target,key))
+    return facts
+
+
 def _fact_priority(filed,alias_index,tag,key):
     # Contract revenue excludes insurance premiums, leases and interest.
     # A later comparative fee subtotal must never displace a reported total.
-    total_priority = {"RevenuesNetOfInterestExpense": 3, "Revenues": 2,
-                      "SalesRevenueNet": 2}.get(tag, 0) if key == "revenue" else 0
+    total_priority = {"RevenuesNetOfInterestExpense": 4, "Revenues": 3,
+                      "SalesRevenueNet": 3, COMPOSITE_REVENUE_TAGS[0]:2, COMPOSITE_REVENUE_TAGS[1]:1}.get(tag, 0) if key == "revenue" else 0
     return (total_priority,filed or "",-alias_index)
 
 
@@ -234,7 +271,7 @@ def debt_basis(rec):
     return "long_term_debt_proxy" if reported_debt(rec) is not None else "unknown"
 
 def facts_by_period(data: dict, years: int = 10):
-    facts = (data.get("facts") or {}).get("us-gaap") or {}
+    facts = revenue_facts(data)
     aliases = {
         "revenue": [
             "RevenuesNetOfInterestExpense",
@@ -243,6 +280,7 @@ def facts_by_period(data: dict, years: int = 10):
             "Revenues",
             "SalesRevenueNet",
             "SalesRevenueGoodsNet",
+            *COMPOSITE_REVENUE_TAGS,
         ],
         "operating_income": ["OperatingIncomeLoss"],
         "net_income": ["NetIncomeLoss", "ProfitLoss"],
@@ -306,7 +344,7 @@ def facts_by_period(data: dict, years: int = 10):
             marker = "_filed_" + key
             if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
-                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn")}
+                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn"),**({"method":x["method"],"components":x["source_components"]} if x.get("source_components") else {})}
                 rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):
@@ -336,7 +374,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
     facts are commonly year-to-date, so derive Q2/Q3 by subtracting the
     preceding cumulative filing from the same fiscal year.
     """
-    facts = (data.get("facts") or {}).get("us-gaap") or {}
+    facts = revenue_facts(data)
     aliases = {
         "revenue": [
             "RevenuesNetOfInterestExpense",
@@ -345,6 +383,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             "Revenues",
             "SalesRevenueNet",
             "SalesRevenueGoodsNet",
+            *COMPOSITE_REVENUE_TAGS,
         ],
         "operating_income": ["OperatingIncomeLoss"],
         "net_income": ["NetIncomeLoss", "ProfitLoss"],
@@ -408,7 +447,7 @@ def quarter_facts_by_period(data: dict, quarters: int = 16):
             marker = "_filed_" + key
             if x["_priority"] >= rec.get(marker, (False,"",-999)):
                 rec[key] = x["val"]
-                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn")}
+                rec.setdefault("field_sources", {})[key] = {"tag":x["_tag"],"start":x.get("start"),"end":x["end"],"filed_date":x.get("filed"),"accession_number":x.get("accn"),**({"method":x["method"],"components":x["source_components"]} if x.get("source_components") else {})}
                 rec[marker] = x["_priority"]
                 rec["filed_date"] = max(rec.get("filed_date") or "", x.get("filed") or "")
                 if x.get("accn"):

@@ -34,7 +34,7 @@ jobs:
       # The push is the explicitly authorized one-time recovery. The RPC rejects
       # stale, evaluated and already-replaced versions; future retries are safe.
       RECOVERY_DATE: ${{ inputs.signal_date || '2026-10-09' }}
-      RECOVERY_REASON: ${{ inputs.reason || 'Correct total SEC revenue selection and reject incompatible TTM sources' }}
+      RECOVERY_REASON: ${{ inputs.reason || 'Complete reported bank and lease revenue components and verify current weekly selection' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

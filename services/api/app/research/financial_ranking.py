@@ -15,7 +15,7 @@ from .analyst_consensus import load_snapshots, consensus_score
 from .observations import close_cutoff, available as observed_available, member_asof
 
 POLICY_VERSION="financial-analyst-priority-v4"
-SIGNAL_VERSION="weekly-signal-v9-verified-revenue"
+SIGNAL_VERSION="weekly-signal-v10-reported-total-revenue"
 WEIGHTS={"financial":.45,"technical":.35,"analyst":.10,"earnings":.10}
 MAX_AUDIT_AGE_HOURS=48
 MIN_FACTOR_COVERAGE=.80

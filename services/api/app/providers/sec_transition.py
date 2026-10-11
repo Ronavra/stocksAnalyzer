@@ -7,9 +7,10 @@ EPS is excluded: per-share values do not share a constant denominator.
 from collections import deque
 from datetime import date,timedelta
 import math
+from .sec import revenue_facts, COMPOSITE_REVENUE_TAGS
 
 TAGS={
- 'revenue':('RevenuesNetOfInterestExpense','RevenueFromContractWithCustomerExcludingAssessedTax','RevenueFromContractWithCustomerIncludingAssessedTax','Revenues','SalesRevenueNet'),
+ 'revenue':('RevenuesNetOfInterestExpense','Revenues','SalesRevenueNet',*COMPOSITE_REVENUE_TAGS,'RevenueFromContractWithCustomerExcludingAssessedTax','RevenueFromContractWithCustomerIncludingAssessedTax'),
  'net_income':('NetIncomeLoss','ProfitLoss'),
  'operating_income':('OperatingIncomeLoss',),
  'operating_cash_flow':('NetCashProvidedByUsedInOperatingActivities',),
@@ -54,7 +55,7 @@ def interval_total(rows,start,end,filed):
 
 def transition_ttm(data,report,latest_quarter):
     if not report or not latest_quarter or latest_quarter['period_end']!=report['period_end']:return None
-    facts=(data.get('facts') or {}).get('us-gaap') or {}
+    facts=revenue_facts(data)
     end=date.fromisoformat(report['period_end'])+timedelta(days=1)
     try:start=date(end.year-1,end.month,end.day)
     except ValueError:start=date(end.year-1,2,28)
@@ -74,7 +75,7 @@ def transition_ttm(data,report,latest_quarter):
             if value is None:continue
             result[field]=value
             provenance[field]={'tag':tag,'start':str(start),'end':report['period_end'],
-                               'components':[{'sign':sign,'start':r['start'],'end':r['end'],'value':r['val'],'filed_date':r['filed'],'accession_number':r.get('accn')} for sign,r in path]}
+                               'components':[{'sign':sign,'start':r['start'],'end':r['end'],'value':r['val'],'filed_date':r['filed'],'accession_number':r.get('accn'),**({'reported_components':r['source_components']} if r.get('source_components') else {})} for sign,r in path]}
             filed_dates.extend(r['filed'] for _,r in path);break
     if result.get('revenue') is None or result.get('net_income') is None or result['revenue']<0:return None
     result['eps_diluted']=None
@@ -82,5 +83,6 @@ def transition_ttm(data,report,latest_quarter):
     result['free_cash_flow']=ocf-abs(capex) if ocf is not None and capex is not None else None
     result['filed_date']=max(filed_dates)
     result['supplemental']={**(result.get('supplemental') or {}),'ttm_interval_basis':provenance,
-                            'eps_ttm_basis':'unavailable; interval arithmetic does not establish diluted EPS'}
+                            'eps_ttm_basis':'unavailable; interval arithmetic does not establish diluted EPS',
+                            'field_sources':{**((result.get('supplemental') or {}).get('field_sources') or {}),**provenance}}
     return result

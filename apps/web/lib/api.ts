@@ -16,14 +16,14 @@ export type Candidate = {
 const API_URL=process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
- constructor(public section:string, public status:number|null=null){
-  super(status===404?"Company not found":status?`Data service returned ${status}. Retry shortly.`:"Cannot reach the data service. Check that the API is running and retry.");
+ constructor(public section:string, public status:number|null=null, public timedOut=false){
+  super(timedOut?"The data service took too long to respond. Retry shortly.":status===404?"Company not found":status?`Data service returned ${status}. Retry shortly.`:"Cannot reach the data service. Check that the API is running and retry.");
  }
 }
 async function apiFetch(path:string, init:RequestInit={}){
  let res:Response;
  try{res=await fetch(`${API_URL}${path}`,{...init,signal:AbortSignal.timeout(30000)});}
- catch{throw new ApiError(path);}
+ catch(error){throw new ApiError(path,null,error instanceof Error && (error.name==="TimeoutError"||error.name==="AbortError"));}
  if(!res.ok && !(res.status===404 && path.startsWith("/api/v1/research/companies/"))) throw new ApiError(path,res.status);
  return res;
 }

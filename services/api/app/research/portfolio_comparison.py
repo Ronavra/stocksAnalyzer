@@ -214,7 +214,7 @@ def compare_portfolios(cohorts, predictions, price_rows, total_return_rows, benc
 
 def load_portfolio_comparison(db):
     from .prospective_metrics import paged
-    from .financial_ranking import SIGNAL_VERSION
+    from .financial_ranking import SIGNAL_VERSION, POLICY_VERSION, WEIGHTS
     from ..market_calendar import latest_completed_session
 
     cohorts=paged(db.table("recommendation_cohorts").select("*").order("signal_date"))
@@ -241,6 +241,7 @@ def load_portfolio_comparison(db):
         # comparison or turn price-only returns into a total-return claim.
         source_error="Total-return data could not be loaded"
     result=compare_portfolios(cohorts,predictions,prices,adjusted,spy["id"],SIGNAL_VERSION)
+    result["selection_policy"]={"name":"Weekly financial priority","version":POLICY_VERSION,"weights":WEIGHTS}
     result["tickers"]={str(c["id"]):c["ticker"] for c in companies if c["id"] in ids}
     result["total_return_source_error"]=source_error
     result["latest_market_date"]=max((p["price_date"] for p in prices if p["company_id"]==spy["id"]),default=None)

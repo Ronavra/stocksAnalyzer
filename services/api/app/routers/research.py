@@ -220,69 +220,62 @@ def portfolio_comparison():
 
 @router.get("/system-health")
 def system_health():
-    db=get_supabase()
-    runs=(db.table("pipeline_runs").select("*").eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
-    source_runs=(db.table("pipeline_runs").select("*").eq("pipeline","research_sources_refresh").order("started_at",desc=True).limit(1).execute().data or [])
-    model_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,best_groups,error_message,results").neq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
-    ranker_runs=(db.table("model_validation_runs").select("finished_at,status,model_version,best_stage,error_message,results").eq("model_version",RANKER_VERSION).order("started_at",desc=True).limit(1).execute().data or [])
-    finance_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
-                  .eq("pipeline","weekly_financial_comparison").order("started_at",desc=True).limit(1).execute().data or [])
-    analyst_runs=(db.table("pipeline_runs").select("finished_at,status,metadata")
-                  .eq("pipeline","analyst_consensus_refresh").order("started_at",desc=True).limit(1).execute().data or [])
-    enrichment_runs=(db.table("pipeline_runs").select("finished_at,status,metadata,error_message")
-                     .eq("pipeline","research_enrichment").order("started_at",desc=True).limit(1).execute().data or [])
-    deadline_runs=(db.table("pipeline_runs").select("finished_at,status,metadata,error_message")
-                  .eq("pipeline","independent_daily_deadline").order("started_at",desc=True).limit(1).execute().data or [])
-    latest=(db.table("price_history").select("price_date").order("price_date",desc=True).limit(1).execute().data or [])
-    feature=(db.table("price_features").select("feature_date").order("feature_date",desc=True).limit(1).execute().data or [])
-    audit=db.rpc("research_data_audit").execute().data or {}
-    run=runs[0] if runs else None
     now=datetime.now(timezone.utc)
+    expected=latest_completed_session(now.astimezone(NY)).isoformat()
+    snapshot=get_supabase().rpc("research_system_health_snapshot",{
+        "p_expected_market_date":expected,"p_ranker_version":RANKER_VERSION,
+    }).execute().data
+    if not isinstance(snapshot,dict) or not isinstance(snapshot.get("freshness"),dict):
+        raise RuntimeError("System health snapshot is incomplete")
+    runs=snapshot.get("runs") or {}
+    run=runs.get("daily_market_research")
+    source_run=runs.get("research_sources_refresh")
+    model_run=snapshot.get("model_run")
+    ranker_run=snapshot.get("ranker_run")
+    finance_run=runs.get("weekly_financial_comparison")
+    analyst_run=runs.get("analyst_consensus_refresh")
+    enrichment_run=runs.get("research_enrichment")
+    deadline_run=runs.get("independent_daily_deadline")
+    repair_run=runs.get("research_history_repair")
+    audit=snapshot.get("audit") or {}
     finished=(run or {}).get("finished_at")
     schedule=schedule_status(run,now)
     overdue=schedule["overdue"]
-    expected=latest_completed_session(now.astimezone(NY)).isoformat()
-    freshness=market_freshness(db,expected)
+    freshness=snapshot["freshness"]
     fresh=freshness["ok"]
-    repair_runs=(db.table("pipeline_runs").select("finished_at,metadata")
-                 .eq("pipeline","research_history_repair").eq("status","success")
-                 .order("finished_at",desc=True).limit(1).execute().data or [])
     quality=((run or {}).get("metadata") or {}).get("price_session_quality")
     quality_source="daily_market_research"
     quality_checked_at=finished
-    if repair_runs and (repair_runs[0].get("finished_at") or "")>(finished or ""):
-        quality=(repair_runs[0].get("metadata") or {}).get("latest_quality")
+    if repair_run and repair_run.get("status")=="success" and (repair_run.get("finished_at") or "")>(finished or ""):
+        quality=(repair_run.get("metadata") or {}).get("latest_quality")
         quality_source="research_history_repair"
-        quality_checked_at=repair_runs[0].get("finished_at")
-    source_run=source_runs[0] if source_runs else None
-    model_run=model_runs[0] if model_runs else None
+        quality_checked_at=repair_run.get("finished_at")
     if model_run:
         model_run["validated_horizons"]=list(validated_horizons(model_run))
         model_run.pop("results",None)
-    ranker_run=ranker_runs[0] if ranker_runs else None
     if ranker_run:
         report=ranker_run.pop("results",None) or {}
         ranker_run["promotion_passed"]=ranker_is_validated({**ranker_run,"results":report})
         ranker_run["selection"]=report.get("selection")
         ranker_run["holdout"]=report.get("holdout")
     return {
-        "status":"overdue" if overdue else run.get("status") if run else "not_run",
+        "status":"overdue" if overdue else "stale" if run and run.get("status")=="success" and not fresh else run.get("status") if run else "not_run",
         "daily_schedule":schedule,
-        "independent_deadline_monitor":deadline_runs[0] if deadline_runs else None,
-        "research_enrichment":enrichment_runs[0] if enrichment_runs else None,
+        "independent_deadline_monitor":deadline_run,
+        "research_enrichment":enrichment_run,
         "market_data_current":fresh,"expected_market_date":expected,
         "market_freshness":freshness,
         "price_session_quality":quality,
         "price_session_quality_source":quality_source,"price_session_quality_checked_at":quality_checked_at,
         "last_run":run,
-        "latest_price_date":latest[0]["price_date"] if latest else None,
-        "latest_feature_date":feature[0]["feature_date"] if feature else None,
+        "latest_price_date":snapshot.get("latest_price_date"),
+        "latest_feature_date":snapshot.get("latest_feature_date"),
         "research_sources_run":source_run,
         "model_validation":model_run,
         "weekly_ranker_validation":ranker_run,
-        "analyst_consensus_refresh":analyst_runs[0] if analyst_runs else None,
-        "financial_ranking_policy":{"version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
-                                    "comparison":finance_runs[0] if finance_runs else None},
+        "analyst_consensus_refresh":analyst_run,
+        "financial_ranking_policy":{"name":"Weekly financial priority","version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
+                                    "comparison":finance_run},
         "coverage":{
             "universe":audit.get("universe",0),
             "fundamentals":audit.get("fundamentals",0),

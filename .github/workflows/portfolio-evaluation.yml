@@ -36,6 +36,8 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
+      - name: Recover current selection and SPY market prices
+        run: python scripts/refresh_dashboard_prices.py
       - name: Refresh adjusted evaluation series for frozen picks and SPY
         run: python scripts/refresh_portfolio_returns.py
       - name: Verify complete comparison and record its observed results

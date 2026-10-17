@@ -1,8 +1,9 @@
 # Portfolio comparison with SPY
 
 `GET /api/v1/research/portfolio-comparison` replays frozen publications into a
-USD 10,000 paper portfolio. Every selection policy and 5/10/20-session holding
-period is a separate account. It never edits recommendations or promotes a model.
+USD 10,000 paper portfolio. The dashboard exposes one current selection policy. Each 5/10/20-session holding
+period is a separate account for the same picks. Earlier code versions remain in
+the API audit history, never as selectable current policies. It never edits recommendations or promotes a model.
 
 ## Execution and capital
 
@@ -55,9 +56,21 @@ missing dates/companies.
 
 The dashboard shows the capital curves, cumulative net returns, their difference,
 daily maximum drawdown, costs, cash and funded/closed/unfunded groups. Short-lived
-accounts are not annualized; CAGR requires at least 365 calendar days. Selection
-policies remain separate. Open positions contribute unrealized gains/losses.
+accounts are not annualized; CAGR requires at least 365 calendar days. Earlier selection versions remain separate in the audit record. Open positions contribute unrealized gains/losses.
 
 Positive observed excess is not evidence of a repeatable advantage. The next
 research stage needs point-in-time data, frozen alternatives, out-of-sample
 comparison and sufficient forward outcomes, including risk and cost stress tests.
+
+
+The return-basis control chooses price changes alone or price changes plus
+provider-adjusted reinvested dividends. Both the selected stocks and SPY always
+use the same basis. Base costs assume 0.10% at each buy and sell (about 0.20% for
+a complete round trip); stress costs assume 0.25% at each side (about 0.50%).
+These are replay assumptions, not actual charges to an account. These controls
+and the holding-period selector do not change which stocks were recommended.
+
+The scheduled comparison health check validates the current selection only.
+Historical versions remain available for audit without letting gaps in an old
+simulation hide the current portfolio. A targeted dashboard recovery can refresh
+at most the current five stocks and SPY while the broader daily refresh continues.

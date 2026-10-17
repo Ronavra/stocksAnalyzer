@@ -27,8 +27,9 @@ def main():
     try:
         report=snapshot(load_portfolio_comparison(db))
         blocked=[{"policy":version,"horizon":h,"basis":basis,"issues":results["base"]["issues"]}
-                 for version,horizons in report["by_policy"].items() for h,bases in horizons.items()
+                 for version,horizons in report["by_policy"].items() if version==report.get("active_version") for h,bases in horizons.items()
                  for basis,results in bases.items() if results["base"]["status"]=="blocked"]
+        report["health_scope"]="current_selection_policy"
         error="Portfolio comparison incomplete" if blocked or not report.get("market_current") else None
         if run_id:
             db.table("pipeline_runs").update({"status":"error" if error else "success",

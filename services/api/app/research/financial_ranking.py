@@ -189,7 +189,7 @@ def finance_profile(company):
                            "financial" in (company.get("sector") or "").lower()) else "general"
 
 
-def financial_scores(candidates,inputs,asof,live=True,now=None):
+def financial_scores(candidates,inputs,asof,live=True,now=None,diagnostics=None):
     entries=verify_audit(inputs.get("audit") or {},now) if live else {}
     scored={}; rejected={}; peer_values=defaultdict(list)
     for candidate in candidates:
@@ -201,12 +201,24 @@ def financial_scores(candidates,inputs,asof,live=True,now=None):
             rejected[cid]="membership_not_observed"; continue
         snapshot,error=financial_snapshot(inputs["metrics"].get(cid,[]),asof,entries.get(cid),live,inputs.get("point_in_time",False))
         if error:
-            rejected[cid]=error; continue
+            rejected[cid]=error
+            if diagnostics is not None:
+                known=[r for r in inputs["metrics"].get(cid,[]) if (r.get("filed_date") or "9999")<=asof and (r.get("period_end") or "9999")<=asof
+                       and (not inputs.get("point_in_time") or observed_available(r,close_cutoff(asof)))]
+                latest=max(known,key=lambda r:(r["period_end"],r.get("filed_date") or ""),default={})
+                diagnostics[cid]={"ticker":company.get("ticker"),"sector":company.get("sector"),"reason":error,
+                    "missing_core_fields":[k for k in ("revenue","net_income","eps_diluted") if number(latest.get(k)) is None]}
+            continue
         profile=finance_profile(company); weights=BANK_FACTORS if profile=="bank" else FINANCIAL_FACTORS if profile=="financial" else GENERAL_FACTORS
         values=factors(snapshot,price)
         coverage=sum(weight for key,weight in weights.items() if values.get(key) is not None)
         if coverage+1e-9<MIN_FACTOR_COVERAGE:
-            rejected[cid]="insufficient_financial_factor_coverage"; continue
+            rejected[cid]="insufficient_financial_factor_coverage"
+            if diagnostics is not None:
+                diagnostics[cid]={"ticker":company.get("ticker"),"sector":company.get("sector"),"profile":profile,
+                    "reason":rejected[cid],"weighted_coverage":round(coverage,4),
+                    "missing_factors":[k for k in weights if values.get(k) is None]}
+            continue
         sector=company.get("sector")
         if not sector:
             rejected[cid]="missing_sector"; continue
@@ -243,7 +255,8 @@ def financial_scores(candidates,inputs,asof,live=True,now=None):
 
 
 def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=5,upcoming=None):
-    financial,rejected=financial_scores(candidates,inputs,asof,live,now)
+    financial_gaps={}
+    financial,rejected=financial_scores(candidates,inputs,asof,live,now,diagnostics=financial_gaps)
     picks=[]; earnings=earnings or {}; analyst_status=Counter()
     decision_at=now or datetime.now(timezone.utc)
     for row in candidates:
@@ -280,4 +293,9 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
                               "rejected":dict(Counter(rejected.values())),
                               "audit_checked_at":(inputs.get("audit") or {}).get("finished_at"),
                               "decision_at":decision_at.isoformat(),"analyst_status":dict(analyst_status),
+                              "financial_data_gaps":list(financial_gaps.values()),
+                              "missing_factor_counts":dict(Counter(k for x in financial_gaps.values() for k in x.get("missing_factors",[]))),
+                              "earnings_component":dict(Counter("recent_surprise" if p["earnings_available"] else
+                                  "recent_report_without_surprise" if p["catalyst"] else "no_report_in_30_days" for p in picks[:limit])),
+                              "sector_counts":dict(Counter(inputs["companies"][p["row"]["company_id"]].get("sector") or "Unknown" for p in picks[:limit])),
                               "validated_forecast":False}

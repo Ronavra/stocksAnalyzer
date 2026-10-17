@@ -79,3 +79,51 @@ response includes `selection_version` and `system_health_protocol`; the compact
 health implementation reports `snapshot-v1`. An already-running API in another
 checkout continues serving its old code until restarted. Database/workflow
 updates do not restart a process on your Windows computer.
+
+
+## Model improvement and validation
+
+The production shortlist keeps one fixed 45/35/10/10 policy. The v6 research
+model tests each additional evidence family against the same price/context
+baseline, chooses features using the middle chronological period, and retains a
+separate final promotion gate. Actual captured fiscal estimates and analyst
+snapshots are now research inputs. Unknown EPS accounting bases and unmatched
+currencies never become comparable revisions. No provider retrospective trend is
+backdated into the observation archive.
+
+Apply `services/api/sql/model_readiness.sql` before the updated
+`services/api/sql/dashboard_health.sql` on a new project. Both are operational
+service-only functions. The dashboard shows archive deferral, captured history,
+interrupted training and current fiscal-estimate coverage separately from model
+validation. A hosted workflow that cannot read the archive records a deferral.
+
+On the Windows archive computer, after pulling and restarting the API/web:
+
+```powershell
+cd services/api
+.\.venv\Scripts\python.exe scripts/run_local_model_validation.py
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_model_schedule.ps1
+```
+
+The task now runs Saturday at 14:00 Israel time, after Friday's close. Reinstall
+it once to update an existing Friday task. The local daily scheduler also checks
+for missed weekly research. The verified archive must be configured in the
+existing `.env`, and the computer must be running with your account signed in.
+The runner checks archive integrity, current market completeness, bounded
+financial field repair, model validation and portfolio risk research. It has a
+5.5-hour execution budget; database leases prevent overlapping training and
+expire abandoned attempts after six hours. Expired workers cannot publish.
+
+Financial field repair rotates through at most 25 issuers per batch, revisiting
+unresolved companies after seven days. It inspects up to five original filings
+per issuer, records remaining gaps, and never invents missing financial values.
+Verified recovered TTM fields survive a later Company Facts omission only when
+period, source, accession and filing date match exactly. A new/amended filing
+must supply its own evidence.
+
+Risk experiments compare a 40% sector cap and inverse-volatility sizing with the
+frozen equal-weight portfolio. Capped capital stays in cash. Sector and daily
+volatility are captured at future publications; missing old snapshots block the
+experiment rather than substituting today's classification. Experiments do not
+change published picks or add selection-policy controls. Their results are
+research observations, not evidence of an advantage from a handful of weeks.

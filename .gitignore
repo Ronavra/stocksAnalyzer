@@ -18,3 +18,8 @@ services/api/local-data/
 *.sqlite3-journal
 *.sqlite3-wal
 *.sqlite3-shm
+
+services/api/model_history_gate.json
+services/api/portfolio_risk_research.json
+services/api/ablation_results.json
+services/api/dashboard_health_check.json

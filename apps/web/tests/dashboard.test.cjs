@@ -46,3 +46,15 @@ test('API timeout is distinguished from a service that cannot be reached',async(
   await assert.rejects(api.getSystemHealth(),/Cannot reach/);
  }finally{global.fetch=previous;}
 });
+
+test('archive deferral and short history are visible without claiming validation',()=>{
+ const Model=load('app/ModelReadiness.tsx').default;
+ const html=renderToStaticMarkup(React.createElement(Model,{data:{history_requires_local_archive:true,
+ financial_observation_days:7,estimate_observation_days:7,fiscal_estimate_companies:501,minimum_observed_sample_dates:26,
+ latest_execution:{metadata:{outcome:'deferred_archive_required'}},latest_training:{status:'interrupted'}}}));
+ assert.match(html,/Training awaits the local archive/);
+ assert.match(html,/501 companies/);
+ assert.match(html,/Deferred/);
+ assert.match(html,/interrupted/);
+ assert.doesNotMatch(html,/model promoted|Validation passed/);
+});

@@ -54,3 +54,17 @@ def test_unavailable_history_is_bounded_and_preserves_missing_ttm():
             raise RuntimeError("No instance document")
     _,annual,quarterly,recovered,errors=asyncio.run(recover_filing_history(Provider(),COMPANY,{"facts":{}},filings(6),10,16))
     assert len(errors)==5 and not recovered and build_ttm_rows(annual,quarterly)==[]
+
+
+def test_field_repair_inspects_current_filing_for_a_missing_eps_tag():
+    data=statement("2025-07-01","2026-06-30","10-K","2026-08-01",400)
+    submissions={"filings":{"recent":{"form":["10-K"],"reportDate":["2026-06-30"],"filingDate":["2026-08-01"],"accessionNumber":["0000001000-26-000001"]}}}
+    calls=[]
+    class Provider:
+        async def filing_facts(self,*args):
+            calls.append(args)
+            return {"facts":{"us-gaap":{"EarningsPerShareDiluted":{"units":{"USD/shares":[{
+                "start":"2025-07-01","end":"2026-06-30","form":"10-K","filed":"2026-08-01","val":5}]}}}}}
+    _,annual,quarterly,recovered,errors=asyncio.run(recover_filing_history(Provider(),COMPANY,data,submissions,10,16,date(2026,10,5),repair_fields=True))
+    assert len(calls)==1 and recovered and not errors
+    assert build_ttm_rows(annual,quarterly)[-1]['eps_diluted']==5

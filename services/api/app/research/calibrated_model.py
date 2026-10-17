@@ -7,6 +7,7 @@ from typing import Any
 from .financial_quality import MAX_TTM_AGE_DAYS
 from .model_identity import HORIZONS, MODEL_VERSION
 from .observations import available, close_cutoff, member_asof
+from .expectation_features import ESTIMATE_FEATURES, ANALYST_FEATURES, estimate_asof, analyst_asof, load_observations
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -56,8 +57,10 @@ FEATURE_GROUPS={
     "valuation":VALUATION_FEATURES,
     "guidance":GUIDANCE_FEATURES,
     "news":NEWS_FEATURES,
+    "estimates":ESTIMATE_FEATURES,
+    "analyst":ANALYST_FEATURES,
 }
-DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance","news")
+DEFAULT_GROUPS=("price","context","earnings","fundamentals","valuation","guidance","news","estimates","analyst")
 FEATURES=[x for g in DEFAULT_GROUPS for x in FEATURE_GROUPS[g]]
 _PREP_CACHE={}
 
@@ -518,6 +521,8 @@ def _prepare(db,years=5):
     guidance=load_guidance_features(db)
     news=load_news_features(db) if db is not None else {}
 
+    estimates=load_observations(db,"estimate_snapshots","captured_at")
+    analysts=load_observations(db,"analyst_consensus_snapshots","observed_at")
     selected_rows=[r for r in rows if r["feature_date"] in sampled_dates
                    and (eligible is None or eligible(r["company_id"],r["feature_date"]))]
     feature_dicts={}
@@ -529,6 +534,8 @@ def _prepare(db,years=5):
         fd.update(fundamental_asof(fund,cid,d))
         fd.update(guidance_asof(guidance,cid,d))
         fd.update(news_asof(news,cid,d))
+        fd.update(estimate_asof(estimates.get(cid,[]),d))
+        fd.update(analyst_asof(analysts.get(cid,[]),d))
         eps=_num(fd.get("_ttm_eps")); fcf=_num(fd.get("_ttm_fcf")); shares=_num(fd.get("_shares_outstanding")); close=_num(r.get("close"))
         pe=close/eps if close is not None and eps is not None and eps>0 else None
         market_cap=close*shares if close is not None and shares is not None and shares>0 else None
@@ -604,15 +611,19 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
         for r in price_rows
     ]
 
-    models={}
+    models={}; readiness={}
     for h in HORIZONS:
         label=f"forward_return_{h}d"
         data=[(r,fd,_num(r.get(label))) for r,fd in enriched if r.get(label) is not None]
+        readiness[str(h)]={"labelled_rows":len(data),"required_rows":min_rows,
+            "sampled_dates":len({r["feature_date"] for r,_,_ in data}),"required_sampled_dates":120}
         if len(data)<min_rows:
+            readiness[str(h)]["blocked_reason"]="insufficient_labelled_rows"
             continue
         data.sort(key=lambda z:z[0]["feature_date"])
         dates=sorted({r["feature_date"] for r,_,_ in data})
         if len(dates)<120:
+            readiness[str(h)]["blocked_reason"]="insufficient_observed_sample_dates"
             continue
 
         fold_starts=[int(len(dates)*p) for p in (.58,.70,.82)]
@@ -705,10 +716,11 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
     available_dates=sorted({r["feature_date"] for r in price_rows})
     evaluation_start=available_dates[int(len(available_dates)*.70)] if available_dates else latest_date
     meta={
+        "horizon_readiness":readiness,
         "membership_history_mode":"recorded_observed_intervals",
         "observed_training_family_dates":{g:len({day for (cid,day),values in prep["features"].items()
                                               if day<evaluation_start and any(values.get(k) is not None for k in FEATURE_GROUPS[g])})
-                                          for g in ("fundamentals","valuation","earnings","guidance","news")},
+                                          for g in ("fundamentals","valuation","earnings","guidance","news","estimates","analyst")},
         "latest_feature_date":latest_date,"features":feature_names,
         "feature_groups":list(groups or DEFAULT_GROUPS),
         "fundamental_companies":prep["fundamental_companies"],
@@ -717,7 +729,7 @@ def fit_models(db,years=5,min_rows=5000,groups=None):
         "news_companies":prep.get("news_companies",0),
         "observed_family_dates":{g:len({day for (cid,day),values in prep["features"].items()
                                      if any(values.get(k) is not None for k in FEATURE_GROUPS[g])})
-                                  for g in ("fundamentals","valuation","earnings","guidance","news")},
+                                  for g in ("fundamentals","valuation","earnings","guidance","news","estimates","analyst")},
     }
     return models,meta
 

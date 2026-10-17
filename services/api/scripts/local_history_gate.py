@@ -11,7 +11,11 @@ from app.db.client import get_supabase
 
 def main():
     db=get_supabase()
-    run=not getattr(db,"history_policy",None) or bool(getattr(db,"archive",None))
+    from app.research.model_readiness import record_history_gate
+    import json
+    report=record_history_gate(db)
+    run=report["full_history_available"]
+    (API_DIR/"model_history_gate.json").write_text(json.dumps(report,indent=2)+"\n")
     if os.getenv("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"],"a") as out: out.write(f"run={str(run).lower()}\n")
     if not run:

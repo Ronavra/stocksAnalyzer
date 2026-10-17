@@ -45,11 +45,35 @@ def upsert_company_metrics(db, company_id, annual_rows, quarter_rows, ttm_rows, 
                 "captured_at": captured_at,
             })
     if payloads:
+        latest=max((r for r in payloads if r["period_type"]=="ttm"),key=lambda r:r["period_end"],default=None)
+        if latest and latest.get("accession_number") and any(latest.get(k) is None for k in DURATION_FIELDS+("cash","total_debt","shares_outstanding")):
+            old=db.table("financial_metrics").select("*").eq("company_id",company_id).eq("period_type","ttm").eq("period_end",latest["period_end"]).limit(1).execute().data or []
+            if old:
+                preserve_recovered_fields(latest,old[0])
+                for row in ttm_rows:
+                    if row["period_end"]==latest["period_end"]:
+                        row.update({k:latest.get(k) for k in DURATION_FIELDS+("cash","total_debt","shares_outstanding","supplemental")})
         # One database request per company instead of one per filing period.
         db.table("financial_metrics").upsert(
             payloads, on_conflict="company_id,period_end,period_type", returning="minimal"
         ).execute()
     return len(payloads)
+
+def preserve_recovered_fields(current, previous):
+    """Company Facts omitting a tag cannot erase a verified value from the same filing."""
+    provenance=(previous.get("supplemental") or {}).get("filing_recovery")
+    if not provenance or not previous.get("accession_number"):
+        return
+    if any(current.get(k)!=previous.get(k) for k in ("company_id","period_end","period_type","filed_date","accession_number","source")):
+        return
+    retained=[]
+    for key in DURATION_FIELDS+("cash","total_debt","shares_outstanding"):
+        if current.get(key) is None and previous.get(key) is not None:
+            current[key]=previous[key];retained.append(key)
+    if retained:
+        current["supplemental"]={**(previous.get("supplemental") or {}),**current.get("supplemental",{}),
+                                 "filing_recovery":provenance,"retained_reported_fields":retained}
+
 
 def validate_full_refresh(total, successful, ttm_companies, ttm_fcf_companies):
     if (not total or successful/total < .90 or ttm_companies/total < .70
@@ -200,7 +224,7 @@ def build_ttm_rows(annual_rows, quarter_rows):
 
 
 
-async def recover_filing_history(provider, company, data, submissions, years, quarters, asof=None):
+async def recover_filing_history(provider, company, data, submissions, years, quarters, asof=None,repair_fields=False):
     """Recover a bounded set of official filings when the latest TTM is stale.
 
     A latest quarter alone may omit the preceding quarter needed by rolling
@@ -214,7 +238,8 @@ async def recover_filing_history(provider, company, data, submissions, years, qu
         return data,annual,quarterly,recovered,errors
     for candidate in financial_reports(submissions)[:5]:
         quality=company_quality(company,annual,quarterly,build_ttm_rows(annual,quarterly),report,asof)
-        if quality["status"] in ("current","ttm_period_old"):
+        incomplete=bool(set(quality.get("missing_required_fields",[])) & {"revenue","net_income","eps_diluted","operating_income","free_cash_flow","cash","total_debt"})
+        if quality["status"] in ("current","ttm_period_old") and not (repair_fields and incomplete):
             break
         # Use only filings within the rolling history required by the report.
         if (not candidate.get("accession_number") or not candidate.get("filed_date")
@@ -236,6 +261,7 @@ async def main():
     p = argparse.ArgumentParser(description="Ingest annual fundamentals from official SEC Company Facts")
     p.add_argument("--tickers", nargs="*")
     p.add_argument("--all", action="store_true")
+    p.add_argument("--repair-fields",action="store_true",help="Also inspect bounded official filings for missing reported fields")
     p.add_argument("--batch-size", type=int, default=10)
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--delay", type=float, default=.15)
@@ -310,7 +336,7 @@ async def main():
             is_bank=company.get("scoring_profile")=="bank" or company.get("industry") in ("Diversified Banks","Regional Banks")
             if latest_report:
                 source_data,annual_rows,quarter_rows,recovered,fallback_errors=await recover_filing_history(
-                    provider,company,source_data,submissions,a.years,a.quarters)
+                    provider,company,source_data,submissions,a.years,a.quarters,repair_fields=a.repair_fields)
                 if is_bank and latest_report.get("accession_number") not in recovered:
                     try:
                         extra=await provider.filing_facts(company["cik"],latest_report)
@@ -348,6 +374,10 @@ async def main():
                 current_quarter=next((r for r in quarter_rows if r['period_end']==latest_report['period_end']),None)
                 bridged=transition_ttm(source_data,latest_report,current_quarter)
                 if bridged:ttm_rows=sorted(ttm_rows+[bridged],key=lambda r:r['period_end'])
+            if recovered:
+                for row in ttm_rows:
+                    if row.get("accn") in recovered and row["period_end"]==(latest_report or {}).get("period_end"):
+                        row["supplemental"]={**(row.get("supplemental") or {}),"filing_recovery":{"accessions":recovered,"method":"companyfacts_plus_matching_official_instance"}}
             captured_at=datetime.now(timezone.utc).isoformat()
             n=upsert_company_metrics(db,company["id"],annual_rows,quarter_rows,ttm_rows,captured_at)
             item=company_quality(company,annual_rows,quarter_rows,ttm_rows,latest_report)

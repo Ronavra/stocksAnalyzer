@@ -14,6 +14,9 @@ class Query:
     def eq(self, *args):
         return self
 
+    def in_(self, *args):
+        return self
+
     def limit(self, *args):
         return self
 
@@ -51,6 +54,8 @@ class Db:
         return type("Rpc", (), {"execute": lambda _: type("Result", (), {"data": self.rows})()})()
 
     def table(self, name):
+        if name=="price_features":
+            return type("RiskQuery",(),{"select":lambda s,*a:s,"in_":lambda s,*a:s,"eq":lambda s,*a:s,"execute":lambda s:type("Result",(),{"data":[{"company_id":r["company_id"],"volatility_20d":.02} for r in self.rows]})()})()
         assert name in ("recommendation_cohorts",)
         return Query(self)
 
@@ -65,7 +70,7 @@ def candidate(cid, setup_date):
 
 
 def mock_finance(monkeypatch,eligible=True):
-    monkeypatch.setattr(weekly,"load_inputs",lambda *_:{})
+    monkeypatch.setattr(weekly,"load_inputs",lambda *_:{"companies":{i:{"sector":"Industrials"} for i in range(1,10)}})
     monkeypatch.setattr(weekly,"upcoming_earnings",lambda *_:{})
     def rank(rows,*args,**kwargs):
         picks=[{"row":row,"score":70.,"financial":{"score":80.,"coverage":1.,"period_end":"2026-06-30"},

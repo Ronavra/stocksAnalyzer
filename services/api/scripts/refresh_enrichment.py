@@ -17,6 +17,7 @@ def main():
     run=db.table("pipeline_runs").insert({"pipeline":"research_enrichment","status":"running","started_at":started}).execute().data[0]
     results={}
     for source,script,args,key in (
+        ("financial_field_repair","repair_financial_coverage.py",[],"SEC_USER_AGENT"),
         ("forward_estimates","refresh_estimate_snapshots.py",[],None),
         ("news","ingest_news.py",[],"MASSIVE_API_KEY"),
         ("macro_context","refresh_macro_sources.py",[],None),

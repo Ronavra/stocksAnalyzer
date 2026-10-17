@@ -49,6 +49,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
     picks,summary=rank_candidates(rows,inputs,signal_date,earnings,top=top,upcoming=upcoming)
     risk_rows=db.table("price_features").select("company_id,volatility_20d").in_("company_id",[p["row"]["company_id"] for p in picks]).eq("feature_date",signal_date).execute().data if picks else []
     risk_volatility={r["company_id"]:r.get("volatility_20d") for r in risk_rows or []}
+    risk_observed_at=datetime.now(timezone.utc).isoformat()
     report={**summary,"dry_run":dry_run,"picks":[{
         "ticker":p["row"].get("ticker"),"company_id":p["row"]["company_id"],
         "score":p["score"],"financial":p["financial"],"contributions":p["contributions"],
@@ -74,7 +75,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
             "analyst_consensus":p["analyst"],
             "upcoming_earnings":upcoming.get(row["company_id"]),
             "selection_context":{"sector":inputs["companies"][row["company_id"]].get("sector"),
-                                 "volatility_20d":risk_volatility.get(row["company_id"]),"observed_at":summary["decision_at"],
+                                 "volatility_20d":risk_volatility.get(row["company_id"]),"observed_at":risk_observed_at,
                                  "upside_to_60d_high":row.get("upside_to_60d_high"),"drawdown_60d":row.get("setup_drawdown_60d")},
         }
         for horizon in horizons:

@@ -87,3 +87,9 @@ def test_field_repair_prioritizes_core_gaps_and_keeps_reported_values_bound_to_f
     current={**old,"free_cash_flow":12}
     preserve_recovered_fields(current,old)
     assert current["free_cash_flow"]==12
+
+
+def test_current_quarter_estimate_is_available_after_period_end_before_the_report():
+    rows=[estimate('2026-10-01',1,fiscal_period_end='2026-09-30',relative_period='0q'),
+          estimate('2026-10-08',1.1,fiscal_period_end='2026-09-30',relative_period='0q')]
+    assert estimate_asof(rows,'2026-10-08')['estimate_eps_revision_7d']==pytest.approx(.1)

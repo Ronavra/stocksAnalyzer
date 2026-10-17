@@ -203,7 +203,8 @@ def financial_scores(candidates,inputs,asof,live=True,now=None,diagnostics=None)
         if error:
             rejected[cid]=error
             if diagnostics is not None:
-                known=[r for r in inputs["metrics"].get(cid,[]) if (r.get("filed_date") or "9999")<=asof and (r.get("period_end") or "9999")<=asof]
+                known=[r for r in inputs["metrics"].get(cid,[]) if (r.get("filed_date") or "9999")<=asof and (r.get("period_end") or "9999")<=asof
+                       and (not inputs.get("point_in_time") or observed_available(r,close_cutoff(asof)))]
                 latest=max(known,key=lambda r:(r["period_end"],r.get("filed_date") or ""),default={})
                 diagnostics[cid]={"ticker":company.get("ticker"),"sector":company.get("sector"),"reason":error,
                     "missing_core_fields":[k for k in ("revenue","net_income","eps_diluted") if number(latest.get(k)) is None]}

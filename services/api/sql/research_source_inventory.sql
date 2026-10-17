@@ -20,7 +20,7 @@ returns jsonb language sql stable security invoker set search_path='' as $$
 with universe as (
  select id,ticker from public.companies
  where active and is_sp500 and (p_company_id is null or id=p_company_id)
-), extra as (
+), extra as materialized (
  select (item->>'company_id')::bigint company_id,item data
  from jsonb_array_elements(public.research_evidence_inventory(p_company_id)) item
 ), news as (

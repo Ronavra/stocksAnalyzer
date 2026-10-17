@@ -29,3 +29,12 @@ Revenue extraction prefers reported total revenues over contract/fee subtotals, 
 
 
 When no explicit total is available, bank net revenue can be recovered from reported net interest income plus reported noninterest income. Lease revenue can be combined with nonlease contract revenue. Components must share the same start/end, filing date, accession and form; conflicting values or missing components block the derivation. Explicit reported total revenues take priority. Each derived value retains the input concepts and values; fiscal-transition recovery uses the same total-first policy.
+
+
+Dashboard system health uses the service-only `research_system_health_snapshot`
+RPC instead of serial table reads and duplicate audits. Its run summaries omit
+the large per-company SEC report. Market completeness still checks the exact
+expected session for the full current universe and SPY. A completed earlier run
+does not make incomplete current data healthy. Request timeouts are reported
+separately from network failures; a portfolio snapshot can supply a clearly
+labelled last-known close while status is temporarily unreachable.

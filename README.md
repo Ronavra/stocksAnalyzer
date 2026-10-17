@@ -69,3 +69,13 @@ publication-aware execution, dividends, costs and benchmark measurement rules.
 
 See [major stock data coverage](docs/data-coverage.md) for collected sources,
 daily estimate snapshots, company-specific gaps and uncollected data families.
+
+
+## Loading dashboard fixes in a local checkout
+
+After `git pull --ff-only`, stop and restart both the API and web development
+servers. Run `npm ci` in `apps/web` if dependencies changed. The API's `/health`
+response includes `selection_version` and `system_health_protocol`; the compact
+health implementation reports `snapshot-v1`. An already-running API in another
+checkout continues serving its old code until restarted. Database/workflow
+updates do not restart a process on your Windows computer.

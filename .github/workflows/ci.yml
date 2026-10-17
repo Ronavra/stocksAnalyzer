@@ -60,5 +60,7 @@ jobs:
         with:
           node-version: "22"
       - run: npm ci --no-audit --no-fund
+      - name: Test dashboard policy and error states
+        run: node --test tests/dashboard.test.cjs
       - name: Build and typecheck web application
         run: npm run build

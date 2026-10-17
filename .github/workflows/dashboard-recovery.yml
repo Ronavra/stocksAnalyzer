@@ -1,0 +1,51 @@
+name: Dashboard Data Recovery
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dashboard-recovery.yml"
+      - "services/api/sql/dashboard_health.sql"
+      - "services/api/scripts/check_dashboard_health.py"
+      - "services/api/scripts/refresh_dashboard_prices.py"
+permissions:
+  contents: read
+concurrency:
+  group: stocks-analyzer-portfolio-evaluation
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Verify the health endpoint with real database access
+        run: python scripts/check_dashboard_health.py
+      - name: Recover current weekly picks and SPY prices first
+        run: python scripts/refresh_dashboard_prices.py
+      - name: Refresh dividend-adjusted evaluation data
+        run: python scripts/refresh_portfolio_returns.py
+      - name: Verify the current portfolio comparison
+        run: python scripts/check_portfolio_comparison.py
+      - name: Recheck health without masking the broad daily refresh state
+        if: always()
+        run: python scripts/check_dashboard_health.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dashboard-health-check
+          path: services/api/dashboard_health_check.json
+          if-no-files-found: ignore

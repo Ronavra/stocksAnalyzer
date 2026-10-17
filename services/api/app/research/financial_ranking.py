@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone, timedelta
 from math import isfinite
 
 from .earnings_catalysts import catalyst_adjustment
-from .financial_quality import MAX_TTM_AGE_DAYS, financial_anomalies, compatible_revenue_basis
+from .financial_quality import MAX_TTM_AGE_DAYS, financial_anomalies, compatible_revenue_basis, finance_profile
 from .analyst_consensus import load_snapshots, consensus_score
 from .observations import close_cutoff, available as observed_available, member_asof
 
@@ -180,13 +180,6 @@ def factors(snapshot,price):
         "return_on_equity":ratio(cur.get("net_income"),average_equity),
         "cet1_ratio":number((cur.get("supplemental") or {}).get("cet1_ratio",{}).get("value")),
     }
-
-
-def finance_profile(company):
-    if company.get("scoring_profile")=="bank" or company.get("industry") in ("Diversified Banks","Regional Banks"):
-        return "bank"
-    return "financial" if (company.get("scoring_profile")=="bank" or
-                           "financial" in (company.get("sector") or "").lower()) else "general"
 
 
 def financial_scores(candidates,inputs,asof,live=True,now=None,diagnostics=None):

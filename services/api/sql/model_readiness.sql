@@ -19,6 +19,22 @@ $$;
 revoke all on function public.claim_predictive_validation(text,boolean) from public,anon,authenticated;
 grant execute on function public.claim_predictive_validation(text,boolean) to service_role;
 
+create or replace function public.guard_validation_completion()
+returns trigger language plpgsql security invoker set search_path='' as $$
+begin
+ if new.status='success' and (old.status not in ('running','success') or
+    (old.status='running' and old.started_at<now()-interval '6 hours')) then
+  raise exception 'Expired or terminal validation cannot be promoted; start a new run';
+ end if;
+ return new;
+end;
+$$;
+revoke all on function public.guard_validation_completion() from public,anon,authenticated;
+grant execute on function public.guard_validation_completion() to service_role;
+drop trigger if exists guard_validation_completion on public.model_validation_runs;
+create trigger guard_validation_completion before update on public.model_validation_runs
+for each row execute function public.guard_validation_completion();
+
 create or replace function public.claim_local_model_research()
 returns jsonb language plpgsql security invoker set search_path='' as $$
 declare v_id bigint;

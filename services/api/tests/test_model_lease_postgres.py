@@ -29,6 +29,9 @@ def test_validation_claim_excludes_other_workers_and_recovers_expired_attempt():
         second=conn.execute("select public.claim_predictive_validation('new',true)").fetchone()[0]
         assert second['run'] and second['id']!=first['id']
         assert conn.execute("update public.model_validation_runs set status='success' where id=%s and status='running' returning id",(first['id'],)).fetchall()==[]
+        with pytest.raises(psycopg.errors.RaiseException,match='cannot be promoted'):
+            with conn.transaction():
+                conn.execute("update public.model_validation_runs set status='success' where id=%s",(first['id'],))
         assert not conn.execute("select has_function_privilege('anon','public.claim_predictive_validation(text,boolean)','execute')").fetchone()[0]
         local=conn.execute("select public.claim_local_model_research()").fetchone()[0]
         assert local['run']

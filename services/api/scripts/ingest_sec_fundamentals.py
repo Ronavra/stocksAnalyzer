@@ -273,7 +273,7 @@ async def main():
     provider = SECProvider()
     companies = (
         db.table("companies")
-        .select("id,ticker,cik,industry,scoring_profile")
+        .select("id,ticker,cik,industry,sector,scoring_profile")
         .eq("is_sp500", True)
         .order("ticker")
         .execute()

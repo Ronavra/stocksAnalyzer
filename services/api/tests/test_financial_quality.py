@@ -177,3 +177,20 @@ def test_filing_instance_keeps_consolidated_matching_entity_and_eps_units():
     assert newest["period_end"]=="2026-06-30" and newest["revenue"]==100
     assert newest["eps_diluted"]==1.25 and newest["filed_date"]=="2026-07-28"
     assert len(old["facts"]["us-gaap"]["Revenues"]["units"]["USD"])==1
+
+
+def test_financial_audit_uses_the_same_industry_profile_as_the_ranker():
+    from app.research.financial_quality import company_quality,finance_profile
+    from datetime import date
+    company={'id':1,'ticker':'INSURER','sector':'Financials','industry':'Insurance'}
+    row={'period_end':'2026-06-30','filed_date':'2026-08-01','revenue':100,'net_income':10,'eps_diluted':2}
+    report={'period_end':'2026-06-30','filed_date':'2026-08-01'}
+    q=company_quality(company,[row],[row],[row],report,date(2026,10,17))
+    assert q['status']=='current' and q['required_profile']=='financial'
+    assert q['profile_complete'] and not q['core_complete']
+    assert 'free_cash_flow' in q['missing_fields'] and not q['missing_required_fields']
+    general=company_quality({**company,'sector':'Industrials'},[row],[row],[row],report,date(2026,10,17))
+    assert 'free_cash_flow' in general['missing_required_fields']
+    bank=company_quality({**company,'industry':'Regional Banks'},[row],[row],[row],report,date(2026,10,17))
+    assert set(bank['missing_required_fields'])=={'equity','cet1_ratio'}
+    assert finance_profile(company)=='financial'

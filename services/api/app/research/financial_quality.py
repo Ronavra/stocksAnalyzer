@@ -42,14 +42,21 @@ CORE_FIELDS=("revenue","net_income","eps_diluted","operating_income",
 MAX_TTM_AGE_DAYS=180
 
 
+def finance_profile(company):
+    if company.get("scoring_profile")=="bank" or company.get("industry") in ("Diversified Banks","Regional Banks"):
+        return "bank"
+    return "financial" if "financial" in (company.get("sector") or "").lower() else "general"
+
+
 def company_quality(company,annual,quarters,ttm,latest_report,asof=None):
     asof=asof or date.today()
     latest_ttm=max(ttm,key=lambda r:r["period_end"]) if ttm else None
     latest_parsed=max([r["period_end"] for r in annual+quarters],default=None)
     expected=(latest_report or {}).get("period_end")
     missing=[k for k in CORE_FIELDS if not latest_ttm or latest_ttm.get(k) is None]
-    is_bank=company.get('scoring_profile')=='bank' or company.get('industry') in ('Diversified Banks','Regional Banks')
-    required=[k for k in CORE_FIELDS if not is_bank or k not in ('operating_income','free_cash_flow','total_debt')]
+    profile=finance_profile(company)
+    is_bank=profile=="bank"
+    required=CORE_FIELDS if profile=="general" else ("revenue","net_income","eps_diluted")
     required_missing=[k for k in required if not latest_ttm or latest_ttm.get(k) is None]
     if is_bank:
         required_missing.extend(k for k in ('equity','cet1_ratio') if ((latest_ttm or {}).get('supplemental') or {}).get(k) is None)
@@ -75,7 +82,7 @@ def company_quality(company,annual,quarters,ttm,latest_report,asof=None):
             "latest_report":latest_report,"latest_parsed_period":latest_parsed,
             "ttm_period":period,"ttm_filed_date":(latest_ttm or {}).get("filed_date"),
             "ttm_age_days":age,"missing_fields":missing,"core_complete":not missing,
-            "required_profile":'bank' if is_bank else 'general','missing_required_fields':required_missing,
+            "required_profile":profile,'missing_required_fields':required_missing,
             "profile_complete":not required_missing,"anomalies":anomalies}
 
 

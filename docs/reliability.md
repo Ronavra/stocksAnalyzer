@@ -58,3 +58,11 @@ collection failure. Daily enrichment performs a rotating, bounded field-repair
 batch. Original filing identity bounds any preservation of recovered TTM facts.
 Portfolio allocation experiments require sector and volatility captured at
 publication and remain outside the production policy and immutable history.
+
+Financial field audits and ranking share the same industry-profile classifier.
+General companies retain the full field checklist. Financial-sector companies
+require the revenue, net income and diluted EPS inputs used by their factors;
+banks additionally require reported equity and CET1. Raw missing-field counts
+remain visible, without labelling unused industrial cash-flow/debt fields as
+missing model requirements. This changes audit interpretation, not score weights
+or frozen publications.

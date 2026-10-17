@@ -127,3 +127,5 @@ volatility are captured at future publications; missing old snapshots block the
 experiment rather than substituting today's classification. Experiments do not
 change published picks or add selection-policy controls. Their results are
 research observations, not evidence of an advantage from a handful of weeks.
+
+Data-audit loading: apply `services/api/sql/research_inventory_performance.sql` and the current `services/api/sql/research_source_inventory.sql` to keep observation aggregates off large evidence payload heaps and evaluate the universe evidence inventory once. `python scripts/check_data_audit.py` (from `services/api`) checks the real route, all 15 source families and per-company gaps within the UI deadline. CI publishes `data_audit_check.json`. Counts still describe observed coverage, not completeness or predictive value.

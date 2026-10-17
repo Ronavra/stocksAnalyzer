@@ -63,6 +63,9 @@ def main():
         incomplete.append("portfolio comparison validation")
     if not run_script("refresh_enrichment.py",required=False):
         incomplete.append("news/management guidance")
+    if earnings_ok and os.getenv("LOCAL_MARKET_ARCHIVE"):
+        if not run_script("run_local_model_validation.py",["--if-due"],required=False):
+            incomplete.append("local model validation; inspect its recorded run")
     if not earnings_ok:
         raise RuntimeError("Required earnings refresh failed; weekly publication blocked. Other sources were refreshed independently.")
     print("Daily market and earnings refresh completed.",flush=True)

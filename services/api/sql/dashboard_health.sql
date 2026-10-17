@@ -24,11 +24,11 @@ returns jsonb language sql stable security invoker set search_path='' as $$
    coalesce(jsonb_agg(ticker order by ticker) filter(where not feature_ok),'[]'::jsonb) missing_features from fresh
  )
  select jsonb_build_object(
-  'checked_at',now(),'runs',(select jsonb_object_agg(pipeline,summary) from latest_runs),
-  'model_run',(select jsonb_build_object('finished_at',finished_at,'status',status,'model_version',model_version,
+  'checked_at',now(),'model_readiness',public.research_model_readiness(),'runs',(select jsonb_object_agg(pipeline,summary) from latest_runs),
+  'model_run',(select jsonb_build_object('started_at',started_at,'finished_at',finished_at,'status',status,'model_version',model_version,
     'best_stage',best_stage,'best_groups',best_groups,'error_message',error_message,'results',case when best_stage is not null then jsonb_build_object(best_stage,results->best_stage) end)
     from public.model_validation_runs where model_version<>p_ranker_version order by started_at desc,id desc limit 1),
-  'ranker_run',(select jsonb_build_object('finished_at',finished_at,'status',status,'model_version',model_version,
+  'ranker_run',(select jsonb_build_object('started_at',started_at,'finished_at',finished_at,'status',status,'model_version',model_version,
     'best_stage',best_stage,'error_message',error_message,'results',results-array['holdout_cohorts','selection_variants','features'])
     from public.model_validation_runs where model_version=p_ranker_version order by started_at desc,id desc limit 1),
   'latest_price_date',(select max(price_date) from public.price_history),

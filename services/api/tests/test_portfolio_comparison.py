@@ -154,3 +154,14 @@ def test_atomic_adjusted_snapshot_rejects_gaps_invalid_and_conflicting_prices():
         normalized_series([{"price_date":"2026-01-05","close":"NaN"}],set(),"2026-01-05")
     with pytest.raises(RuntimeError,match="conflicting"):
         normalized_series(rows+[{"price_date":"2026-01-05","close":99}],set(),"2026-01-05")
+
+
+def test_research_allocation_keeps_capped_money_in_cash_and_refuses_borrowing():
+    days=calendar(6);group=cohort();key=(group['signal_date'],group['model_version'])
+    report=simulate([group],prediction(group),bars(days,[100,102,104,106,108,110]),days,99,5,0,
+                    allocation_weights={key:{1:.4}})
+    assert report['curve'][0]['cash']==6000
+    assert report['summary']['portfolio_value']==pytest.approx(10400)
+    assert report['summary']['cash_fraction']==1
+    with pytest.raises(ValueError,match='without borrowing'):
+        simulate([group],prediction(group),bars(days),days,99,5,0,allocation_weights={key:{1:1.1}})

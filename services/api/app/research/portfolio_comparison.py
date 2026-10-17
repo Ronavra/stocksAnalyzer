@@ -68,7 +68,7 @@ def summarize(curve):
     }
 
 
-def simulate(cohorts, predictions, prices, calendar, benchmark_id, horizon, round_trip_cost=.002):
+def simulate(cohorts, predictions, prices, calendar, benchmark_id, horizon, round_trip_cost=.002, allocation_weights=None):
     """Rotate ceil(horizon/5) funded sleeves; busy sleeves cannot borrow capital.
 
 Each sleeve starts with an equal share of the initial capital and reinvests its
@@ -158,14 +158,22 @@ off-schedule groups with no free sleeve are recorded as unfunded, never leverage
             if not rows:
                 cash_groups += 1
                 continue
-            allocation = sleeve["cash"] / len(rows)
+            weights=(allocation_weights or {}).get((cohort["signal_date"],cohort["model_version"]))
+            weights=weights if weights is not None else {p["company_id"]:1/len(rows) for p in rows}
+            if (set(weights)!={p["company_id"] for p in rows} or
+                    any(number(w) is None or w<0 for w in weights.values()) or sum(weights.values())>1+1e-9):
+                raise ValueError("Portfolio weights must be finite, nonnegative and fully specified, without borrowing")
+            available_cash=sleeve["cash"];spent=0.
             for row in rows:
+                allocation=available_cash*weights[row["company_id"]]
+                if allocation==0: continue
+                spent+=allocation
                 notional = allocation / (1 + side_cost)
                 fee = allocation - notional
                 sleeve["positions"][row["company_id"]] = notional / maps[row["company_id"]][day]
                 costs += fee
                 traded += notional
-            sleeve["cash"] = 0.
+            sleeve["cash"] = max(0.,available_cash-spent)
         cash = sum(s["cash"] for s in sleeves)
         positions = sum(units * maps[cid][day] for s in sleeves for cid, units in s["positions"].items())
         curve.append({"date": day, "equity": cash + positions, "benchmark_equity": benchmark_units * spy,

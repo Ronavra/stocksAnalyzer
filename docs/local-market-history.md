@@ -22,7 +22,7 @@ To keep the backup on another disk:
 powershell -ExecutionPolicy Bypass -File .\scripts\migrate_local_history.ps1 -BackupPath "D:\stocksAnalyzer-backups\market-history.sqlite3"
 ```
 
-The script installs pinned archive dependencies, exports/verifies both copies, prunes, compacts, checks the real remaining database size, writes `LOCAL_MARKET_ARCHIVE` and `LOCAL_MARKET_ARCHIVE_BACKUP` to this computer's `.env`, and installs daily 08:00 and Friday 18:00 Israel-time tasks. A result above 500 MB is reported as unfinished, rather than assuming this retention policy will always fit. Re-run the API normally:
+The script installs pinned archive dependencies, exports/verifies both copies, prunes, compacts, checks the real remaining database size, writes `LOCAL_MARKET_ARCHIVE` and `LOCAL_MARKET_ARCHIVE_BACKUP` to this computer's `.env`, and installs daily 08:00 and Saturday 14:00 Israel-time tasks. A result above 500 MB is reported as unfinished, rather than assuming this retention policy will always fit. Re-run the API normally:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
@@ -59,7 +59,7 @@ To inspect a migration without deleting cloud rows:
 
 The archive-aware client supports existing price/feature queries, pagination and provider preference. Per company/process it refreshes the recent 90-day window (or any missed period) from Supabase, merging current rows into the archive before answering a query. Older rows are read locally. New full-history writes are saved locally; only rows within retention are sent to Supabase. Missing/invalid archives fail explicitly. Retained server rows use their full payload so partial API writes do not erase archived metadata.
 
-Daily hosted refreshes can continue against the bounded cloud history. New constituents bootstrap bounded history there; run ingestion on the archive computer to collect their full history. Unbounded historical reads and writes of old rows without a local archive fail explicitly. Hosted full-history model validation/backtests defer to the archive computer after retention activates; they cannot promote a model from an accidentally shortened training dataset. The Friday local task runs the same validation scripts and gates. Frozen published cohorts remain unchanged.
+Daily hosted refreshes can continue against the bounded cloud history. New constituents bootstrap bounded history there; run ingestion on the archive computer to collect their full history. Unbounded historical reads and writes of old rows without a local archive fail explicitly. Hosted full-history model validation/backtests defer to the archive computer after retention activates; they cannot promote a model from an accidentally shortened training dataset. The Saturday local task runs the same validation scripts and gates. Frozen published cohorts remain unchanged.
 
 SQL label-repair RPCs operate on cloud rows. Repairs of archived prices/features must run on the archive computer using the Python historical rebuild (`build_daily_price_features.py --full`) so both local data and retained cloud rows are updated. Do not interpret a cloud-only repair as verification of the archived years.
 

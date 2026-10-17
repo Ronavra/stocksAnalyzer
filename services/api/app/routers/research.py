@@ -251,6 +251,8 @@ def system_health():
         quality_source="research_history_repair"
         quality_checked_at=repair_run.get("finished_at")
     if model_run:
+        from ..research.model_readiness import execution_status
+        model_run=execution_status(model_run,now)
         model_run["validated_horizons"]=list(validated_horizons(model_run))
         model_run.pop("results",None)
     if ranker_run:
@@ -272,6 +274,7 @@ def system_health():
         "latest_feature_date":snapshot.get("latest_feature_date"),
         "research_sources_run":source_run,
         "model_validation":model_run,
+        "model_readiness":snapshot.get("model_readiness"),
         "weekly_ranker_validation":ranker_run,
         "analyst_consensus_refresh":analyst_run,
         "financial_ranking_policy":{"name":"Weekly financial priority","version":POLICY_VERSION,"weights":WEIGHTS,"validated_forecast":False,
@@ -281,6 +284,7 @@ def system_health():
             "fundamentals":audit.get("fundamentals",0),
             "earnings":audit.get("earnings",0),
             "valuation":audit.get("valuation",0),
-            "estimates":audit.get("estimates",0),
+            "estimates":(snapshot.get("model_readiness") or {}).get("fiscal_estimate_companies",0),
+            "legacy_estimates":audit.get("estimates",0),
         },
     }

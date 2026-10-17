@@ -45,12 +45,16 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
         return []
     earnings=recent_earnings(db,rows)
     upcoming=upcoming_earnings(db,rows,signal_date)
-    picks,summary=rank_candidates(rows,load_inputs(db,signal_date),signal_date,earnings,top=top,upcoming=upcoming)
+    inputs=load_inputs(db,signal_date)
+    picks,summary=rank_candidates(rows,inputs,signal_date,earnings,top=top,upcoming=upcoming)
+    risk_rows=db.table("price_features").select("company_id,volatility_20d").in_("company_id",[p["row"]["company_id"] for p in picks]).eq("feature_date",signal_date).execute().data if picks else []
+    risk_volatility={r["company_id"]:r.get("volatility_20d") for r in risk_rows or []}
     report={**summary,"dry_run":dry_run,"picks":[{
         "ticker":p["row"].get("ticker"),"company_id":p["row"]["company_id"],
         "score":p["score"],"financial":p["financial"],"contributions":p["contributions"],
         "technical_score":p["technical_score"],"earnings_score":p["earnings_score"],
-        "analyst":p["analyst"],
+        "analyst":p["analyst"],"earnings_available":p["earnings_available"],
+        "earnings_availability_reason":"recent_surprise" if p["earnings_available"] else "recent_report_without_surprise" if p["catalyst"] else "no_report_in_30_days",
     } for p in picks]}
     (API_DIR/"financial_selection.json").write_text(json.dumps(report,indent=2)+"\n")
     print("Financial weekly selection:",json.dumps(summary),flush=True)
@@ -69,7 +73,9 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
                 "earnings_available":p["earnings_available"],"contributions":p["contributions"]},
             "analyst_consensus":p["analyst"],
             "upcoming_earnings":upcoming.get(row["company_id"]),
-            "selection_context":{"upside_to_60d_high":row.get("upside_to_60d_high"),"drawdown_60d":row.get("setup_drawdown_60d")},
+            "selection_context":{"sector":inputs["companies"][row["company_id"]].get("sector"),
+                                 "volatility_20d":risk_volatility.get(row["company_id"]),"observed_at":summary["decision_at"],
+                                 "upside_to_60d_high":row.get("upside_to_60d_high"),"drawdown_60d":row.get("setup_drawdown_60d")},
         }
         for horizon in horizons:
             rec={"company_id":row["company_id"],"signal_date":signal_date,"horizon_days":horizon,

@@ -1,7 +1,7 @@
 import json
 import sys
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,15 +14,13 @@ from app.db.client import get_supabase
 from app.research.calibrated_model import MODEL_VERSION, fit_models
 from app.research.model_forecasts import publish_forecasts
 
-STAGES=[
-    ("price",("price",)),
-    ("price_context",("price","context")),
-    ("price_context_earnings",("price","context","earnings")),
-    ("price_context_earnings_fundamentals",("price","context","earnings","fundamentals")),
-    ("price_context_earnings_fundamentals_valuation",("price","context","earnings","fundamentals","valuation")),
-    ("with_guidance",("price","context","earnings","fundamentals","valuation","guidance")),
-    ("full",("price","context","earnings","fundamentals","valuation","guidance","news")),
-]
+BASE=("price","context")
+# Independent additions keep a young guidance archive from blocking other tests.
+STAGES=[("price",("price",)),("price_context",BASE)]+[
+    ("base_plus_"+group,BASE+(group,))
+    for group in ("earnings","fundamentals","valuation","guidance","news","estimates","analyst")
+]+[("full",("price","context","earnings","fundamentals","valuation","guidance","news","estimates","analyst"))]
+
 
 def stage_score(horizons):
     vals=[
@@ -33,15 +31,13 @@ def stage_score(horizons):
 
 def main():
     db=get_supabase()
-    now=datetime.now(timezone.utc).isoformat()
-    db.table("model_validation_runs").update({
-        "status":"error","finished_at":now,
-        "error_message":"Superseded by a newer model validation run"
-    }).eq("model_version",MODEL_VERSION).eq("status","running").execute()
-    created=(db.table("model_validation_runs").insert({
-        "status":"running","model_version":MODEL_VERSION
-    }).execute().data or [])
-    run_id=created[0]["id"] if created else None
+    from app.db.market_history import require_full_history
+    require_full_history(db)
+    claim=db.rpc("claim_predictive_validation",{"p_model_version":MODEL_VERSION,"p_claim":True}).execute().data or {}
+    if not claim.get("run"):
+        print("Validation already running; preserving its lease.",flush=True)
+        return
+    run_id=claim["id"]
     results={}
     try:
         best_stage=None; best_groups=None; best_score=None
@@ -65,6 +61,7 @@ def main():
                     "evaluation_protocol":d.get("evaluation_protocol"),
                     "return_holdout_mae":d.get("return_holdout_mae"),
                     "return_baseline_mae":d.get("return_baseline_mae"),
+                    "return_mae_beats_baseline":d.get("return_mae_beats_baseline"),
                 }
                 print(
                     f"{name:38} {h:2d}d "
@@ -78,22 +75,23 @@ def main():
             # latest holdout is reserved for the independent promotion gate.
             family_ready=all(meta.get("observed_family_dates",{}).get(group,0)>=26
                              and meta.get("observed_training_family_dates",{}).get(group,0)>=26
-                             for group in groups if group in ("fundamentals","valuation","earnings","guidance","news"))
+                             for group in groups if group in ("fundamentals","valuation","earnings","guidance","news","estimates","analyst"))
             results[name]["observed_family_ready"]=family_ready
             if family_ready and n_valid>=2 and score is not None and (best_score is None or score<best_score-1e-5):
                 best_stage=name; best_groups=list(groups); best_score=score
                 best_models=models
 
-        print("\nIncremental feature value (negative delta is better):")
-        prior=None
+        print("\nFeature value against the preregistered base, using the selection period only:")
+        base=results["price_context"]["horizons"]
         for name,_ in STAGES:
-            cur=results[name]["horizons"]
-            if prior:
-                for h in ("5","10","20"):
-                    if h in cur and h in prior:
-                        delta=cur[h]["calibrated_brier"]-prior[h]["calibrated_brier"]
-                        print(f"{name:38} {h}d delta_brier={delta:+.6f}")
-            prior=cur
+            if name in ("price","price_context"):
+                continue
+            deltas={}
+            for h,cur in results[name]["horizons"].items():
+                if h in base:
+                    deltas[h]=cur["selection_calibrated_brier"]-base[h]["selection_calibrated_brier"]
+            results[name]["selection_delta_vs_price_context"]=deltas
+            print(name,json.dumps(deltas),flush=True)
 
         if best_stage is None:
             best_stage="price"
@@ -110,9 +108,19 @@ def main():
             "best_groups":best_groups,
             "results":results,
         }
-        if run_id:
-            db.table("model_validation_runs").update(payload).eq("id",run_id).execute()
+        from app.research.validation_gate import validated_horizons
+        valid=validated_horizons({**payload,"model_version":MODEL_VERSION})
+        outcome="validated" if valid else "insufficient_history" if not best_models else "baseline_not_beaten"
+        results["execution"]={"outcome":outcome,"validated_horizons":list(valid),
+                              "selection_weights_changed":False}
+        saved=db.table("model_validation_runs").update(payload).eq("id",run_id).eq("status","running").gte("started_at",(datetime.now(timezone.utc)-timedelta(hours=6)).isoformat()).execute().data
+        if not saved:
+            raise RuntimeError("Validation lease expired or was superseded; results and forecasts withheld")
         forecast_report=publish_forecasts(db,run_id,best_models,payload)
+        db.table("pipeline_runs").insert({"pipeline":"model_validation_execution","status":"success",
+            "started_at":payload["finished_at"],"finished_at":payload["finished_at"],
+            "metadata":{**results["execution"],"validation_run_id":run_id,
+                        "full_history_available":True,"model_version":MODEL_VERSION}}).execute()
         print("Observed learning-model forecasts:",json.dumps(forecast_report),flush=True)
 
         out=API_DIR/"ablation_results.json"
@@ -129,7 +137,10 @@ def main():
             db.table("model_validation_runs").update({
                 "finished_at":datetime.now(timezone.utc).isoformat(),
                 "status":"error","error_message":str(exc)[:2000],
-            }).eq("id",run_id).execute()
+            }).eq("id",run_id).in_("status",["running","success"]).execute()
+        db.table("pipeline_runs").insert({"pipeline":"model_validation_execution","status":"error",
+            "started_at":datetime.now(timezone.utc).isoformat(),"finished_at":datetime.now(timezone.utc).isoformat(),
+            "metadata":{"outcome":"failed","validation_run_id":run_id},"error_message":str(exc)[:500]}).execute()
         traceback.print_exc()
         raise
 

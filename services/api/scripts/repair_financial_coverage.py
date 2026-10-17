@@ -37,6 +37,10 @@ def main():
     targets=repair_targets(pending,args.limit)
     report={"requested_tickers":[r["ticker"] for r in targets],"missing_fields":dict(Counter(k for r in targets for k in r.get("missing_required_fields",r.get("missing_fields",[])))),
             "missing_is_not_zero":True,"historical_publications_changed":False}
+    claim=db.rpc("claim_financial_coverage_repair").execute().data or {}
+    if not claim.get("run"):
+        print("A financial repair batch is already running; avoiding duplicate collection.");return
+    run_id=claim["id"]
     started=datetime.now(timezone.utc).isoformat()
     try:
         if targets:
@@ -48,12 +52,12 @@ def main():
             report["required_fields_missing_before"]=sum(len(r.get("missing_required_fields",r.get("missing_fields",[]))) for r in targets)
             report["required_fields_missing_after"]=sum(len(r.get("missing_required_fields",r.get("missing_fields",[]))) for r in repaired.get("companies",[]))
             report["remaining"]= [{"ticker":r["ticker"],"missing_fields":r.get("missing_required_fields",[]),"status":r["status"]} for r in repaired.get("companies",[])]
-        db.table("pipeline_runs").insert({"pipeline":"financial_coverage_repair","status":"success","started_at":started,
-            "finished_at":datetime.now(timezone.utc).isoformat(),"metadata":report}).execute()
+        db.table("pipeline_runs").update({"status":"success","finished_at":datetime.now(timezone.utc).isoformat(),
+            "metadata":report}).eq("id",run_id).eq("status","running").execute()
         print(json.dumps(report),flush=True)
     except Exception as exc:
-        db.table("pipeline_runs").insert({"pipeline":"financial_coverage_repair","status":"error","started_at":started,
-            "finished_at":datetime.now(timezone.utc).isoformat(),"metadata":report,"error_message":str(exc)[:500]}).execute()
+        db.table("pipeline_runs").update({"status":"error","finished_at":datetime.now(timezone.utc).isoformat(),
+            "metadata":report,"error_message":str(exc)[:500]}).eq("id",run_id).eq("status","running").execute()
         raise
 
 

@@ -35,6 +35,22 @@ $$;
 revoke all on function public.claim_local_model_research() from public,anon,authenticated;
 grant execute on function public.claim_local_model_research() to service_role;
 
+create or replace function public.claim_financial_coverage_repair()
+returns jsonb language plpgsql security invoker set search_path='' as $$
+declare v_id bigint;
+begin
+ perform pg_catalog.pg_advisory_xact_lock(73519250);
+ update public.pipeline_runs set status='error',finished_at=now(),error_message='Financial repair lease expired'
+ where pipeline='financial_coverage_repair' and status='running' and started_at<now()-interval '1 hour';
+ select id into v_id from public.pipeline_runs where pipeline='financial_coverage_repair' and status='running' limit 1;
+ if v_id is not null then return jsonb_build_object('run',false,'id',v_id); end if;
+ insert into public.pipeline_runs(pipeline,status,started_at) values('financial_coverage_repair','running',now()) returning id into v_id;
+ return jsonb_build_object('run',true,'id',v_id);
+end;
+$$;
+revoke all on function public.claim_financial_coverage_repair() from public,anon,authenticated;
+grant execute on function public.claim_financial_coverage_repair() to service_role;
+
 create or replace function public.research_model_readiness()
 returns jsonb language sql stable security invoker set search_path='' as $$
  select jsonb_build_object(

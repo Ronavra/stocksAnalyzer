@@ -210,3 +210,9 @@ snapshot write. The API's read-only `/api/v1/research/active-portfolio` serves
 the latest persisted account; a GET never mutates holdings. The GitHub daily
 and weekly workflows and Windows daily runner update it. No old publication,
 model promotion gate or historical result is replaced by this account.
+
+Execution-price gaps pause later simulated fills in chronological order, so
+proceeds from a later sale cannot finance an earlier unresolved purchase. A
+missing execution/valuation or skipped exchange-session observation flags
+research drawdown history as incomplete, including after prices recover. The
+dashboard suppresses that drawdown value rather than presenting it as complete.

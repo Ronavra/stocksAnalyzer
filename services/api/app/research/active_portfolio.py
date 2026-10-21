@@ -35,7 +35,7 @@ def positive(value):
 def initial_state():
     return dict(policy=POLICY, mode='paper', cash=INITIAL_CASH, positions=[], orders=[],
                 costs=0., traded_notional=0., last_review_week=None, peak_equity=INITIAL_CASH,
-                max_drawdown=0., completed_trades=0, benchmark_units=None, started_at=None, fills=[], actions=[], alerts=[])
+                max_drawdown=0., metric_history_complete=True, completed_trades=0, benchmark_units=None, started_at=None, fills=[], actions=[], alerts=[])
 
 
 def price_maps(rows):
@@ -95,15 +95,22 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
     if len(positions) != len(state['positions']) or len(positions) > 10:
         raise ValueError('Invalid or duplicate positions')
     pending = []
+    execution_blocked = False
+    if previous and previous.get('as_of_date'):
+        prior_day=previous['as_of_date']
+        if sessions_after(prior_day) < asof:
+            state['metric_history_complete'] = False
     # Sell first at each execution close. Never substitute today's price for a
     # missing historical execution close; an unresolved order remains flagged.
     for order in sorted(state['orders'], key=lambda o:(o['execute_on'], o['side'] != 'sell', o['company_id'])):
         cid = order['company_id']; execution = order['execute_on']
-        if execution > asof:
+        if execution_blocked or execution > asof:
             pending.append(order); continue
         quote = maps[cid].get(execution)
         if quote is None:
             pending.append(order)
+            execution_blocked = True
+            state['metric_history_complete'] = False
             state['alerts'].append(f'{order["ticker"]}: missing execution close {execution}; order unresolved')
             continue
         if order['side'] == 'sell':
@@ -147,6 +154,7 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
     missing = [p['ticker'] for p in positions.values() if maps[p['company_id']].get(asof) is None]
     marks = {cid:maps[cid].get(asof) for cid in positions}
     if missing:
+        state['metric_history_complete'] = False
         state['alerts'].append('Current marks missing: '+', '.join(missing)+'; new decisions paused')
     equity = None if missing else state['cash']+sum(p['shares']*marks[cid] for cid,p in positions.items())
     state.update(as_of_date=asof, decision_at=now.isoformat(), equity=equity, config=dict(CONFIG),
@@ -266,6 +274,8 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
         if weight > CONFIG['sector_weight']+.005:
             state['alerts'].append(f'{sector}: sector weight exceeds 30%; review concentration')
     state['sector_weights'] = dict(sectors)
+    if not state.get('metric_history_complete',True):
+        state['alerts'].append('Daily valuation/execution history has gaps; drawdown is incomplete')
     state['alerts'] = list(dict.fromkeys(state['alerts']))
     if state['cash'] < -1e-6 or len(state['positions']) > 10:
         raise ValueError('Portfolio funding/position constraint failed')

@@ -54,9 +54,11 @@ def yahoo_payload(company_id, calendar, records, observed_at):
         if day > today or day < today-timedelta(days=120) or actual is None:
             continue
         delta = actual-estimate if estimate is not None else None
+        reported_pct = number(item.get('Surprise(%)'))
         rows[day.isoformat()] = {'company_id':company_id, 'reported_date':day.isoformat(),
                      'reported_eps':actual, 'estimated_eps':estimate, 'surprise':delta,
-                     'surprise_percent':delta/abs(estimate)*100 if delta is not None and estimate != 0 else None,
+                     'surprise_percent':(reported_pct if reported_pct is not None else delta/abs(estimate)*100)
+                                        if delta is not None and estimate != 0 else None,
                      'actual_revenue':None, 'estimated_revenue':None, 'revenue_surprise':None,
                      'revenue_surprise_percent':None, 'source':'yahoo_finance',
                      'source_record_id':day.isoformat(), 'captured_at':observed_at}

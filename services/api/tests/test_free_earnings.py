@@ -98,3 +98,9 @@ def test_unknown_calendar_blocks_otherwise_eligible_live_candidate():
     assert 10 not in [p['row']['company_id'] for p in picks]
     assert summary['rejected']['earnings_calendar_unknown']==1
     assert summary['weights']=={'financial':.45,'technical':.35,'analyst':.1,'earnings':.1}
+
+
+def test_provider_surprise_keeps_precision_lost_in_displayed_eps_values():
+    _, rows = yahoo_payload(1,{},[{'Earnings Date':date(2026,10,20),
+        'Reported EPS':2.02,'EPS Estimate':1.89,'Surprise(%)':6.74}],NOW)
+    assert rows[0]['surprise_percent']==6.74

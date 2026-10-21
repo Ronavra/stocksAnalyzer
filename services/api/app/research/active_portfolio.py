@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from math import isfinite
 from statistics import correlation
 
-from ..market_calendar import NY, is_trading_day, session_close
+from ..market_calendar import NY, is_trading_day, session_close, latest_completed_session
 from .price_window import canonical_prices
 
 POLICY = 'active-ten-v1'
@@ -109,6 +109,8 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
         if order['side'] == 'sell':
             p = positions.get(cid)
             if p is None:
+                if any(o['company_id']==cid and o['side']=='buy' for o in pending):
+                    pending.append(order)
                 continue
             notional = p['shares']*quote
             fee = notional*CONFIG['one_way_cost']
@@ -276,4 +278,6 @@ def load_active_portfolio(db):
     if not rows:
         return dict(status='pending', policy=POLICY, mode='paper', config=dict(CONFIG), validated=False)
     row=rows[0]
-    return dict(status='ok', revision=row['id'], recorded_at=row['created_at'], **row['snapshot'])
+    expected=latest_completed_session(datetime.now(NY)).isoformat()
+    stale=(row['snapshot'].get('portfolio') or {}).get('as_of_date') != expected
+    return dict(status='stale' if stale else 'ok', expected_market_date=expected, revision=row['id'], recorded_at=row['created_at'], **row['snapshot'])

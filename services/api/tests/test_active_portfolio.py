@@ -128,3 +128,14 @@ def test_early_risk_sale_replaces_future_experiment_exit():
                 {1:{'calendar_status':'current','reported_date':'2026-10-26'}},fixed_horizon=20)
     sales=[o for o in out['orders'] if o['side']=='sell']
     assert len(sales)==1 and sales[0]['reason']=='earnings_approaching'
+
+
+def test_unresolved_buy_preserves_its_expiry_until_both_exact_prices_arrive():
+    s=advance(None,candidates(1),prices(),ASOF,NOW,fixed_horizon=5)
+    exit_day=sessions_after('2026-10-22',5)
+    p=[r for r in prices() if not (r['company_id']==1 and r['price_date']=='2026-10-22')]
+    now=datetime.fromisoformat(exit_day+'T23:00:00+00:00')
+    missing=advance(s,[],p,exit_day,now,ranking_error='unavailable',fixed_horizon=5)
+    assert len(missing['orders'])==2
+    fixed=advance(missing,[],prices(),exit_day,now,ranking_error='unavailable',fixed_horizon=5)
+    assert not fixed['orders'] and not fixed['positions'] and fixed['completed_trades']==1

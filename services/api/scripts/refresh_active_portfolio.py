@@ -21,13 +21,14 @@ def refresh(db, now=None, dry_run=False):
     today=now.astimezone(NY).date().isoformat()
     previous=load_active_portfolio(db)
     revision=previous.get('revision',0)
-    if previous.get('decision_day') == today and not (previous.get('portfolio') or {}).get('ranking_error') and not dry_run:
-        return dict(status='already_recorded', revision=revision)
     rows=db.rpc('research_dashboard_candidates').execute().data or []
     asof,current=current_candidates(rows)
     expected=latest_completed_session(now.astimezone(NY)).isoformat()
     if not current or asof != expected:
         raise RuntimeError(f'Active portfolio requires current prices/features for {expected}; received {asof}')
+    if (previous.get('decision_day') == today and (previous.get('portfolio') or {}).get('as_of_date')==asof
+            and not (previous.get('portfolio') or {}).get('ranking_error') and not dry_run):
+        return dict(status='already_recorded', revision=revision)
     # Include held companies even if they left the universe or lost their setup.
     accounts=[previous.get('portfolio') or {},*(previous.get('experiments') or {}).values()]
     held=[p for account in accounts for p in account.get('positions',[])]

@@ -24,7 +24,8 @@ begin
  select id,snapshot into existing,old_snapshot from public.active_portfolio_snapshots where policy='active-ten-v1' and decision_day=decision order by id desc limit 1;
  -- A failed research review may be repaired by a later successful review that
  -- uses the already committed positions/fills. Successful days stay frozen.
- if existing is not null and (old_snapshot->'portfolio'->>'ranking_error' is null
+ if existing is not null and old_snapshot->'portfolio'->>'as_of_date' >= p_snapshot->'portfolio'->>'as_of_date'
+    and (old_snapshot->'portfolio'->>'ranking_error' is null
     or p_snapshot->'portfolio'->>'ranking_error' is not null) then
   return jsonb_build_object('status','already_recorded','revision',existing);
  end if;

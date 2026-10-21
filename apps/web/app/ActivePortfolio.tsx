@@ -10,6 +10,7 @@ export default function ActivePortfolio({data}:{data?:ActivePortfolioData}){
  const planned=p.positions.length+p.orders.filter(o=>o.side==='buy').length-exits.size;
  return <section className="panel activePortfolio">
   <div className="panelHead"><div><p className="eyebrow">ONE ACTIVE PORTFOLIO · PAPER ACCOUNT</p><h2>{p.positions.length} held · {planned} after pending orders · maximum 10</h2></div><span className="badge">EXPERIMENTAL · 20 SESSION REVIEW</span></div>
+  {data.status==='stale'&&<p className="negative" role="alert">Portfolio review is stale. Expected market close {data.expected_market_date}; showing the last recorded decisions.</p>}
   <p className="muted">Recorded {data.recorded_at??p.decision_at} · market close {p.as_of_date}. Weekly selection review; daily data and event checks. Orders below are simulated and are not sent to a broker.</p>
   <div className="definitions"><div><b>Paper account value</b><span>{money(p.equity)}</span></div><div><b>Uninvested cash</b><span>{money(p.cash)} · {pct(p.cash_weight)}</span></div><div><b>Assumed costs paid</b><span>{money(p.costs)} · 0.10% per buy or sell</span></div><div><b>Holding rule</b><span>Review after 20 trading sessions; renew only with an eligible thesis</span></div></div>
   {p.alerts.length>0&&<div role="status"><h3>Needs review</h3>{p.alerts.map(a=><p className="negative" key={a}>{a}</p>)}</div>}

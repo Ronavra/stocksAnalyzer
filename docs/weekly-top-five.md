@@ -167,7 +167,9 @@ at their exact close. A new decision uses the current collection timestamp and
 executes at the next NYSE session after the decision's New York calendar day;
 it never buys at yesterday's already known close. Missing execution prices stay
 unresolved and block new allocation; they are never moved to a favorable later
-close. One atomic append-only snapshot per New York day uses a revision lease,
+close. Atomic append-only snapshots use a revision lease and deduplicate each New York
+day/market-close pair. A failed research review can be repaired in a later
+snapshot; a newly completed close can also advance the account,
 so concurrent daily/weekly runs cannot duplicate positions or spend cash twice.
 
 Weekly review is the first available daily run in each New York Monday week.

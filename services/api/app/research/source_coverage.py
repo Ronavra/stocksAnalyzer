@@ -116,17 +116,22 @@ def load_coverage(db, company_id=None, financial_report=None, now=None):
     if financial_report is None:
         reports = db.table("pipeline_runs").select("metadata,finished_at,status").eq("pipeline", "research_sources_refresh").contains("metadata", {"financial_audit": {}}).order("started_at", desc=True).limit(1).execute().data or []
         financial_report = next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")), {})
-    audit = ((financial_report.get("metadata") or {}).get("financial_audit") or {})
-    by_id = {x["company_id"]: x for x in audit.get("companies", [])}
     raw = db.rpc("research_source_inventory", {"p_company_id": company_id}).execute().data or []
-    from .free_calendar import calendar_assessment
     calendars = db.rpc("free_earnings_calendar", {"p_company_ids":[r["company_id"] for r in raw]}).execute().data or []
-    clock = now or datetime.now(timezone.utc)
-    assessed = calendar_assessment(calendars,[r["company_id"] for r in raw],latest_completed_session(clock.astimezone(NY)).isoformat(),clock.isoformat())
-    raw = [{**r,"free_calendar":assessed[r["company_id"]]} for r in raw]
-    companies = [company_coverage(r, by_id.get(r["company_id"]), financial_report.get("finished_at"), now) for r in raw]
     checks = db.table("pipeline_runs").select("pipeline,status,started_at,finished_at").in_("pipeline", ["free_earnings_refresh", "research_sources_refresh", "company_disclosures_refresh", "estimate_consensus_refresh", "news_refresh", "sec_guidance_refresh", "analyst_consensus_refresh",'official_documents_refresh','insider_transactions_refresh','public_ownership_actions_refresh','corporate_actions_refresh','macro_sources_refresh']).order("started_at", desc=True).limit(80).execute().data or []
     latest = {}
     for check in checks:
         latest.setdefault(check["pipeline"], check)
-    return {"companies": companies, "families": summarize(companies), "source_checks": list(latest.values()), "all_major_data_complete": False}
+    return coverage_from_inventory(raw,calendars,financial_report,list(latest.values()),now)
+
+
+def coverage_from_inventory(raw,calendars,financial_report,checks,now=None):
+    """Shared classification for the single dashboard snapshot and issuer view."""
+    audit = ((financial_report.get("metadata") or {}).get("financial_audit") or {})
+    by_id = {x["company_id"]: x for x in audit.get("companies", [])}
+    from .free_calendar import calendar_assessment
+    clock = now or datetime.now(timezone.utc)
+    assessed = calendar_assessment(calendars,[r["company_id"] for r in raw],latest_completed_session(clock.astimezone(NY)).isoformat(),clock.isoformat())
+    raw = [{**r,"free_calendar":assessed[r["company_id"]]} for r in raw]
+    companies = [company_coverage(r, by_id.get(r["company_id"]), financial_report.get("finished_at"), now) for r in raw]
+    return {"companies":companies,"families":summarize(companies),"source_checks":checks,"all_major_data_complete":False}

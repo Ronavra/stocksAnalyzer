@@ -15,6 +15,7 @@ sys.path.insert(0,str(API_DIR))
 load_dotenv(API_DIR/".env")
 
 from app.db.client import get_supabase
+from app.market_calendar import latest_session_close
 
 PY=sys.executable
 FULL_PIPELINE="research_sources_refresh"
@@ -35,8 +36,14 @@ def recent_success(db,max_age_hours,pipeline):
     if not rows or rows[0].get("status")!="success" or not rows[0].get("finished_at"):
         return None
     finished=datetime.fromisoformat(rows[0]["finished_at"].replace("Z","+00:00"))
-    age=(datetime.now(timezone.utc)-finished).total_seconds()/3600
-    return rows[0] if age<=max_age_hours else None
+    clock=datetime.now(timezone.utc)
+    age=(clock-finished).total_seconds()/3600
+    if pipeline==EARNINGS_PIPELINE:
+        close=latest_session_close(clock).astimezone(timezone.utc)
+        started=datetime.fromisoformat(rows[0].get("started_at",rows[0]["finished_at"]).replace("Z","+00:00"))
+        if started<close:
+            return None
+    return rows[0] if 0<=age<=max_age_hours else None
 
 def refresh_sources(earnings_only,include_guidance,timings,sec_only=False):
     # Refresh free calendars/results independently of SEC access.

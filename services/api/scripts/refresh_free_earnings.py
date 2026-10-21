@@ -12,6 +12,20 @@ sys.path.insert(0,str(API_DIR)); load_dotenv(API_DIR/'.env')
 from app.db.client import get_supabase
 from app.providers.free_earnings import YahooEarningsProvider, AlphaCalendarProvider, yahoo_payload, calendar_row
 from app.research.free_calendar import calendar_assessment
+from app.market_calendar import latest_session_close, NY
+
+
+def fresh_company_ids(previous, now):
+    # A recent pre-close fetch cannot cover a newly completed market session.
+    close = latest_session_close(now).astimezone(timezone.utc)
+    fresh = set()
+    for row in previous:
+        stamp = datetime.fromisoformat(row['observed_at'].replace('Z','+00:00'))
+        if (row.get('source') == 'yahoo_finance' and row.get('status') == 'observed'
+            and timedelta(0) <= now-stamp < timedelta(hours=4) and stamp >= close
+            and any(d >= now.astimezone(NY).date().isoformat() for d in row.get('dates') or [])):
+            fresh.add(row['company_id'])
+    return fresh
 
 
 def refresh(db, provider=None, delay=0.6, now=None):
@@ -28,10 +42,7 @@ def refresh(db, provider=None, delay=0.6, now=None):
               'alpha_calendar':'not_configured','paid_endpoints_called':False,'revenue_surprise_available':False}
     try:
         previous = db.rpc('free_earnings_calendar').execute().data or []
-        fresh = {r['company_id'] for r in previous if r.get('source') == 'yahoo_finance'
-                 and r.get('status') == 'observed'
-                 and timedelta(0) <= now-datetime.fromisoformat(r['observed_at'].replace('Z','+00:00')) < timedelta(hours=20)
-                 and any(d >= now.date().isoformat() for d in r.get('dates') or [])}
+        fresh = fresh_company_ids(previous, now)
         key = os.getenv('ALPHA_VANTAGE_API_KEY')
         if key and db.rpc('claim_alpha_earnings_calendar').execute().data:
             try:

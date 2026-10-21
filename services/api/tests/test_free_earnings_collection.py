@@ -67,3 +67,22 @@ def test_running_lease_does_not_create_a_false_success(setup):
     with pytest.raises(RuntimeError,match='already running'):
         collector.refresh(db,delay=0)
     assert not db.updates and not db.snapshots
+
+
+def test_pre_close_calendar_does_not_skip_newly_completed_session_results():
+    row={'company_id':1,'source':'yahoo_finance','status':'observed',
+         'observed_at':'2026-10-21T19:00:00Z','dates':['2026-10-28']}
+    # The 16:00 New York close is 20:00 UTC on this date.
+    assert collector.fresh_company_ids([row],datetime(2026,10,21,19,30,tzinfo=timezone.utc))=={1}
+    assert collector.fresh_company_ids([row],datetime(2026,10,21,20,30,tzinfo=timezone.utc))==set()
+
+
+def test_previous_evening_results_refresh_again_the_next_morning():
+    row={'company_id':1,'source':'yahoo_finance','status':'observed',
+         'observed_at':'2026-10-21T21:00:00Z','dates':['2026-10-28']}
+    assert collector.fresh_company_ids([row],datetime(2026,10,22,5,tzinfo=timezone.utc))==set()
+
+
+def test_cache_cutoff_respects_the_early_nyse_close():
+    from app.market_calendar import latest_session_close
+    assert latest_session_close(datetime(2026,11,27,18,30,tzinfo=timezone.utc)).isoformat()=='2026-11-27T13:00:00-05:00'

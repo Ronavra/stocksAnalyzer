@@ -13,6 +13,8 @@ on:
       - "services/api/app/research/earnings_catalysts.py"
       - "services/api/app/research/source_coverage.py"
       - "services/api/sql/free_earnings.sql"
+      - "services/api/sql/dashboard_data_audit.sql"
+      - "services/api/app/routers/research.py"
 permissions:
   contents: read
 concurrency:

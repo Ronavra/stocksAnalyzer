@@ -65,3 +65,14 @@ def latest_completed_session(now=None,data_ready_hour=17):
     while not is_trading_day(d):
         d-=timedelta(days=1)
     return d
+
+
+def latest_session_close(now=None):
+    """Actual completed NYSE close; independent of the price-feed ready buffer."""
+    now=(now or datetime.now(NY)).astimezone(NY)
+    day=now.date()
+    if not is_trading_day(day) or now<session_close(day):
+        day-=timedelta(days=1)
+    while not is_trading_day(day):
+        day-=timedelta(days=1)
+    return session_close(day)

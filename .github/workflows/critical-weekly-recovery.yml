@@ -10,9 +10,6 @@ on:
         description: Auditable correction reason
         required: true
         type: string
-  push:
-    branches: [main]
-    paths: [".github/workflows/critical-weekly-recovery.yml"]
 permissions:
   contents: read
 concurrency:
@@ -20,6 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   recover:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     defaults:
@@ -31,10 +29,10 @@ jobs:
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
-      # The push is the explicitly authorized one-time recovery. The RPC rejects
-      # stale, evaluated and already-replaced versions; future retries are safe.
-      RECOVERY_DATE: ${{ inputs.signal_date || '2026-10-09' }}
-      RECOVERY_REASON: ${{ inputs.reason || 'Complete reported bank and lease revenue components and verify current weekly selection' }}
+      # Recovery requires an explicit date and reason; routine source updates
+      # must never launch the historical one-time correction again.
+      RECOVERY_DATE: ${{ inputs.signal_date }}
+      RECOVERY_REASON: ${{ inputs.reason }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -8,23 +8,13 @@ MAX_CATALYST_AGE_DAYS = 30
 
 
 def upcoming_earnings(db, candidates, signal_date, observed_at=None):
-    """Expected report dates support the primary-horizon event exclusion gate."""
+    """Fresh free-source calendars; every candidate receives an explicit status."""
     if not candidates:
         return {}
-    observed_at = observed_at or datetime.now(timezone.utc).isoformat()
-    day = date.fromisoformat(signal_date)
-    sessions = []
-    while len(sessions) < 21:
-        day += timedelta(days=1)
-        if is_trading_day(day):
-            sessions.append(day.isoformat())
-    events = (db.table("earnings_events")
-              .select("company_id,reported_date,event_time,estimated_eps,estimated_revenue,source,captured_at")
-              .in_("company_id", [r["company_id"] for r in candidates])
-              .gte("reported_date", signal_date).lte("reported_date", sessions[-1])
-              .lte("captured_at", observed_at).is_("reported_eps", "null")
-              .order("reported_date").limit(1000).execute().data or [])
-    return upcoming_from_events(events,signal_date,observed_at)
+    from .free_calendar import calendar_assessment
+    ids = list({r["company_id"] for r in candidates})
+    rows = db.rpc("free_earnings_calendar", {"p_company_ids":ids}).execute().data or []
+    return calendar_assessment(rows, ids, signal_date, observed_at)
 
 
 def upcoming_from_events(events,signal_date,observed_at=None):
@@ -66,9 +56,9 @@ def recent_earnings(db, candidates):
     start = 0
     while True:
         page = (db.table("earnings_events")
-                .select("company_id,reported_date,surprise_percent,revenue_surprise_percent,source")
+                .select("company_id,reported_date,surprise_percent,revenue_surprise_percent,source,captured_at")
                 .in_("company_id", list(asof))
-                .eq("source", "massive_benzinga")
+                .in_("source", ["massive_benzinga", "alphavantage", "yahoo_finance"])
                 .gte("reported_date", first.isoformat())
                 .lt("reported_date", last.isoformat())
                 .order("reported_date", desc=True)
@@ -78,6 +68,10 @@ def recent_earnings(db, candidates):
             break
         start += 1000
 
+    # Keep each provider's actual/estimate pair together. Prefer a fresh free
+    # observation on a duplicate report date, without combining EPS and revenue
+    # surprises from different accounting bases or providers.
+    events.sort(key=lambda e:(e["reported_date"],e.get("captured_at") or ""), reverse=True)
     latest = {}
     for event in events:
         cid = event["company_id"]

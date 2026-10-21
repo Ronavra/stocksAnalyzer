@@ -26,7 +26,6 @@ def main():
         ("official_documents","refresh_official_documents.py",[],"SEC_USER_AGENT"),
         ("public_ownership_actions","refresh_public_ownership_actions.py",[],None),
         ("corporate_action_calendar","refresh_corporate_actions.py",[],"TWELVE_DATA_API_KEY"),
-        ("vendor_guidance","ingest_massive_guidance.py",["--incremental"],"MASSIVE_API_KEY"),
         ("sec_guidance","enrich_company_disclosures.py",[],"SEC_USER_AGENT"),
     ):
         if key and not os.getenv(key):

@@ -52,8 +52,9 @@ def company_coverage(raw, financial_audit=None, checked_at=None, now=None):
     add("valuation", "current" if valuation == market_date else "stale" if valuation else "missing", f"Valuation date {valuation or 'unavailable'}.")
     earnings = raw.get("earnings") or {}
     add("earnings", "observed" if earnings.get("reported_date") else "missing", f"Latest reported EPS event {earnings.get('reported_date') or 'unavailable'}.")
-    add("upcoming", "observed" if earnings.get("upcoming_eps") and earnings.get("upcoming_revenue") else "partial" if earnings.get("next_date") else "missing",
-        f"Next stored report {earnings.get('next_date') or 'unavailable'}; EPS/revenue estimates within 120 days: {earnings.get('upcoming_eps', 0)}/{earnings.get('upcoming_revenue', 0)}. Event dates can change.")
+    calendar = raw.get("free_calendar") or {}
+    add("upcoming", "current" if calendar.get("calendar_status") == "current" else "unknown",
+        f"Free calendar: {calendar.get('calendar_status','unknown')}; sources {', '.join(calendar.get('calendar_sources') or []) or 'unavailable'}; next stored date {calendar.get('reported_date') or 'outside evaluation window or unknown'}. Missing/old calendars block live selection. Revenue surprises are not inferred from unmatched sources.", calendar.get("calendar_observed_at"))
     analyst = raw.get("analyst") or {}
     add("analyst", "current" if analyst.get("analysts", 0) >= 3 and recent(analyst.get("observed_at"), now, 7 * 24) else "partial" if analyst.get("analysts", 0) else "missing",
         f"{analyst.get('analysts', 0)} recommendations; source {analyst.get('source') or 'unavailable'}.", analyst.get("observed_at"))
@@ -118,8 +119,13 @@ def load_coverage(db, company_id=None, financial_report=None, now=None):
     audit = ((financial_report.get("metadata") or {}).get("financial_audit") or {})
     by_id = {x["company_id"]: x for x in audit.get("companies", [])}
     raw = db.rpc("research_source_inventory", {"p_company_id": company_id}).execute().data or []
+    from .free_calendar import calendar_assessment
+    calendars = db.rpc("free_earnings_calendar", {"p_company_ids":[r["company_id"] for r in raw]}).execute().data or []
+    clock = now or datetime.now(timezone.utc)
+    assessed = calendar_assessment(calendars,[r["company_id"] for r in raw],latest_completed_session(clock.astimezone(NY)).isoformat(),clock.isoformat())
+    raw = [{**r,"free_calendar":assessed[r["company_id"]]} for r in raw]
     companies = [company_coverage(r, by_id.get(r["company_id"]), financial_report.get("finished_at"), now) for r in raw]
-    checks = db.table("pipeline_runs").select("pipeline,status,started_at,finished_at").in_("pipeline", ["research_sources_refresh", "company_disclosures_refresh", "estimate_consensus_refresh", "news_refresh", "sec_guidance_refresh", "analyst_consensus_refresh",'official_documents_refresh','insider_transactions_refresh','public_ownership_actions_refresh','corporate_actions_refresh','macro_sources_refresh']).order("started_at", desc=True).limit(80).execute().data or []
+    checks = db.table("pipeline_runs").select("pipeline,status,started_at,finished_at").in_("pipeline", ["free_earnings_refresh", "research_sources_refresh", "company_disclosures_refresh", "estimate_consensus_refresh", "news_refresh", "sec_guidance_refresh", "analyst_consensus_refresh",'official_documents_refresh','insider_transactions_refresh','public_ownership_actions_refresh','corporate_actions_refresh','macro_sources_refresh']).order("started_at", desc=True).limit(80).execute().data or []
     latest = {}
     for check in checks:
         latest.setdefault(check["pipeline"], check)

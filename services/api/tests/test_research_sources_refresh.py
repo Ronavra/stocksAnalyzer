@@ -19,8 +19,8 @@ def test_full_refresh_persists_earnings_timing_before_sec_denial(monkeypatch):
     with pytest.raises(subprocess.CalledProcessError):
         refresh.refresh_sources(False, False, timings)
 
-    assert calls == ["ingest_massive_earnings.py", "ingest_sec_fundamentals.py"]
-    assert timings == {"massive_earnings_seconds": 1.25}
+    assert calls == ["refresh_free_earnings.py", "ingest_sec_fundamentals.py"]
+    assert timings == {"free_earnings_seconds": 1.25}
 
 
 def test_weekly_earnings_refresh_does_not_call_sec(monkeypatch):
@@ -34,8 +34,8 @@ def test_weekly_earnings_refresh_does_not_call_sec(monkeypatch):
     timings = {}
     refresh.refresh_sources(True, False, timings)
 
-    assert calls == ["ingest_massive_earnings.py"]
-    assert timings == {"massive_earnings_seconds": 2}
+    assert calls == ["refresh_free_earnings.py"]
+    assert timings == {"free_earnings_seconds": 2}
 
 
 def test_sec_only_refresh_does_not_fetch_earnings_again(monkeypatch):
@@ -109,3 +109,23 @@ def test_reusing_sec_filings_still_rebuilds_valuation_for_latest_close(monkeypat
     monkeypatch.setattr(refresh,"run",lambda *args:calls.append(args))
     refresh.main()
     assert calls==[("build_daily_valuation.py",)]
+
+
+def test_paid_success_does_not_skip_first_free_refresh(monkeypatch):
+    monkeypatch.setattr(refresh.sys,'argv',['refresh','--earnings-only','--max-age-hours','4'])
+    class Query:
+        def insert(self,*a,**kw): return self
+        def update(self,*a,**kw): return self
+        def eq(self,*a): return self
+        def execute(self): return type('Result',(),{'data':[{'id':1}]})()
+    class Db:
+        def table(self,*a): return Query()
+        def rpc(self,*a):
+            return type('Result',(),{'execute':lambda self:type('Response',(),{'data':{}})()})()
+    monkeypatch.setattr(refresh,'get_supabase',lambda:Db())
+    monkeypatch.setattr(refresh,'recent_success',lambda *a:{'finished_at':'recent','metadata':{'timings':{'massive_earnings_seconds':1}}})
+    calls=[]
+    monkeypatch.setattr(refresh,'run',lambda *a:calls.append(a) or 1)
+    monkeypatch.setattr(refresh,'financial_audit',lambda *a:None)
+    refresh.main()
+    assert calls==[('refresh_free_earnings.py',)]

@@ -50,7 +50,7 @@ def candidates():
         x["ranking_weights"]=WEIGHTS
         x["upcoming_earnings"]=upcoming.get(cid)
         x["earnings_risk_excluded"]=5 in (upcoming.get(cid) or {}).get("within_execution_horizons",[])
-        x["financial_ranking_status"]="eligible" if p else (ranking_error or "Does not meet freshness, financial coverage or score requirements")
+        x["financial_ranking_status"]="eligible" if p else ("Earnings calendar unavailable or stale; excluded from live selection" if (upcoming.get(cid) or {}).get("calendar_status") != "current" else ranking_error or "Does not meet freshness, financial coverage or score requirements")
     result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
     return result
 
@@ -126,7 +126,7 @@ def company(ticker:str):
     db=get_supabase(); companies=db.table("companies").select("*").eq("ticker",ticker.upper()).limit(1).execute().data or []
     if not companies: raise HTTPException(404,"Company not found")
     c=companies[0]; snapshots=db.table("research_snapshots").select("*").eq("company_id",c["id"]).order("as_of_date",desc=True).limit(12).execute().data or []
-    latest_earnings=(db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).eq("source","massive_benzinga").lte("reported_date",__import__("datetime").date.today().isoformat()).order("reported_date",desc=True).limit(1).execute().data or []); latest_earnings=latest_earnings[0] if latest_earnings else None
+    latest_earnings=(db.table("earnings_events").select("reported_date,event_time,surprise_percent,revenue_surprise_percent,source").eq("company_id",c["id"]).in_("source",["massive_benzinga","alphavantage","yahoo_finance"]).lte("reported_date",__import__("datetime").date.today().isoformat()).order("reported_date",desc=True).limit(1).execute().data or []); latest_earnings=latest_earnings[0] if latest_earnings else None
     financials=(db.table("financial_metrics").select("period_end,revenue,operating_income,net_income,eps_diluted,free_cash_flow,capex,cash,total_debt,source").eq("company_id",c["id"]).eq("period_type","annual").order("period_end",desc=True).limit(6).execute().data or [])
     usable=[x for x in financials if x.get("revenue") is not None]; fundamental_signals=None
     if usable:

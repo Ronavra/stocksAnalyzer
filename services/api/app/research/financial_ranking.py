@@ -257,6 +257,8 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
         if data is None:
             continue
         future=(upcoming or {}).get(cid) or {}
+        if live and upcoming is not None and future.get("calendar_status") != "current":
+            rejected[cid]="earnings_calendar_unknown"; continue
         if 5 in future.get("within_execution_horizons",future.get("within_horizons",[])):
             rejected[cid]="earnings_within_primary_horizon"; continue
         technical=number(row.get("opportunity_score"))

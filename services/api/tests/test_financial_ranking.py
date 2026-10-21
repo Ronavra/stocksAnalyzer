@@ -138,7 +138,7 @@ def test_analyst_component_changes_order_and_keeps_neutral_weight_when_missing()
 
 def test_report_in_execution_window_excludes_candidate_without_changing_weights():
     inputs,rows=inputs_and_candidates()
-    picks,summary=finance.rank_candidates(rows,inputs,ASOF,now=NOW,upcoming={10:{"within_execution_horizons":[5,10,20]}})
+    picks,summary=finance.rank_candidates(rows,inputs,ASOF,now=NOW,upcoming={cid:{"calendar_status":"current", "within_execution_horizons":[5,10,20] if cid==10 else []} for cid in range(1,11)})
     assert 10 not in [p['row']['company_id'] for p in picks]
     assert summary['rejected']['earnings_within_primary_horizon']==1
     assert summary['weights']=={"financial":.45,"technical":.35,"analyst":.1,"earnings":.1}

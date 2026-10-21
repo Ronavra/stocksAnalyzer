@@ -50,7 +50,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
     risk_rows=db.table("price_features").select("company_id,volatility_20d").in_("company_id",[p["row"]["company_id"] for p in picks]).eq("feature_date",signal_date).execute().data if picks else []
     risk_volatility={r["company_id"]:r.get("volatility_20d") for r in risk_rows or []}
     risk_observed_at=datetime.now(timezone.utc).isoformat()
-    report={**summary,"dry_run":dry_run,"picks":[{
+    report={**summary,"data_source_policy":"free-earnings-v1","dry_run":dry_run,"picks":[{
         "ticker":p["row"].get("ticker"),"company_id":p["row"]["company_id"],
         "score":p["score"],"financial":p["financial"],"contributions":p["contributions"],
         "technical_score":p["technical_score"],"earnings_score":p["earnings_score"],
@@ -64,7 +64,7 @@ def generate(db,top=5,horizons=(5,10,20),force=False,dry_run=False,replace_week=
     for rank,p in enumerate(picks,1):
         row=p["row"]
         diagnostics={
-            "ranking_mode":"financial_priority","predictive_model":None,
+            "ranking_mode":"financial_priority","data_source_policy":"free-earnings-v1","predictive_model":None,
             "validated_forecast":False,"primary_horizon_days":5,
             "entry_policy":"next_session_close","round_trip_cost":ROUND_TRIP_COST,
             "selection_close":row.get("current_price"),

@@ -15,6 +15,7 @@ on:
     paths:
       - "services/api/scripts/run_daily_cycle.py"
       - "services/api/scripts/sync_sp500.py"
+      - "services/api/scripts/refresh_free_earnings.py"
       - ".github/workflows/daily-research.yml"
 
 concurrency:
@@ -35,6 +36,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -49,13 +51,12 @@ jobs:
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt
       - name: Compile critical Python files
-        run: python -m py_compile scripts/run_daily_cycle.py scripts/run_scheduled_daily.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/ingest_massive_earnings.py app/providers/twelvedata.py app/providers/sec.py app/providers/massive.py app/market_calendar.py
+        run: python -m py_compile scripts/run_daily_cycle.py scripts/run_scheduled_daily.py scripts/validate_daily_cycle.py scripts/ingest_prices.py scripts/build_daily_price_features.py scripts/scan_setups.py scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/refresh_free_earnings.py app/providers/twelvedata.py app/providers/sec.py app/providers/free_earnings.py app/market_calendar.py
       - name: Validate required secrets
         run: |
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
           test -n "$TWELVE_DATA_API_KEY"
-          test -n "$MASSIVE_API_KEY"
       - name: Skip duplicate daily refresh
         id: daily_gate
         run: python scripts/daily_run_gate.py
@@ -72,12 +73,9 @@ jobs:
       - name: Confirm persisted pipeline health
         if: success() && steps.daily_gate.outputs.sources == 'true'
         run: python scripts/validate_daily_cycle.py
-      - name: Refresh Massive earnings
+      - name: Refresh free earnings calendars and EPS results
         if: success() && steps.daily_gate.outputs.sources == 'true'
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
-      - name: Backfill earnings for newly added or uncovered companies
-        if: success() && steps.daily_gate.outputs.sources == 'true'
-        run: python scripts/ingest_massive_earnings.py --backfill-missing
       - name: Refresh SEC fundamentals and valuation
         id: sec_refresh
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && env.SEC_USER_AGENT != '' }}
@@ -116,3 +114,10 @@ jobs:
       - name: Report delayed daily starts and completions
         if: ${{ always() && steps.daily_gate.outputs.run == 'true' }}
         run: python scripts/report_daily_schedule.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: free-earnings-coverage
+          path: services/api/free_earnings_refresh.json
+          if-no-files-found: ignore

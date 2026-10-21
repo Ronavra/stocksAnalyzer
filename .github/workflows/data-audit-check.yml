@@ -8,6 +8,11 @@ on:
       - "services/api/sql/research_inventory_performance.sql"
       - "services/api/sql/research_source_inventory.sql"
       - "services/api/scripts/check_data_audit.py"
+      - "services/api/app/providers/free_earnings.py"
+      - "services/api/app/research/free_calendar.py"
+      - "services/api/app/research/earnings_catalysts.py"
+      - "services/api/app/research/source_coverage.py"
+      - "services/api/sql/free_earnings.sql"
 permissions:
   contents: read
 concurrency:

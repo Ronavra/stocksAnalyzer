@@ -129,3 +129,21 @@ def test_paid_success_does_not_skip_first_free_refresh(monkeypatch):
     monkeypatch.setattr(refresh,'financial_audit',lambda *a:None)
     refresh.main()
     assert calls==[('refresh_free_earnings.py',)]
+
+
+def test_earnings_recency_does_not_reuse_a_pre_close_refresh(monkeypatch):
+    from datetime import datetime, timezone
+    class Clock(datetime):
+        @classmethod
+        def now(cls,tz=None): return cls(2026,10,21,20,30,tzinfo=timezone.utc)
+    monkeypatch.setattr(refresh,'datetime',Clock)
+    class Query:
+        def select(self,*a): return self
+        def eq(self,*a): return self
+        def order(self,*a,**kw): return self
+        def limit(self,*a): return self
+        def execute(self): return type('Result',(),{'data':[{'status':'success','started_at':'2026-10-21T19:00:00Z','finished_at':'2026-10-21T20:10:00Z'}]})()
+    class Db:
+        def table(self,*a): return Query()
+    assert refresh.recent_success(Db(),4,refresh.EARNINGS_PIPELINE) is None
+    assert refresh.recent_success(Db(),4,refresh.FULL_PIPELINE) is not None

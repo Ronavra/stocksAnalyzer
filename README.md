@@ -138,3 +138,5 @@ A calendar with no future report, an error, or an observation older than 48 hour
 Local command from `services/api`: `.\.venv\Scripts\python.exe scripts/refresh_free_earnings.py`. Update the local checkout and restart the API to load the new calendar gate. Cloud daily collection uses repository secrets; the optional free Alpha key need not be configured for Yahoo collection to run.
 
 The dashboard data audit now reads `research_dashboard_data_audit()` in one request. Apply `services/api/sql/dashboard_data_audit.sql` after `free_earnings.sql`; the canonical Python coverage classifier is shared with issuer views, preserving all 15 source families and per-company unknowns.
+
+Earnings cache reuse is limited to four hours and requires collection after the latest completed New York close; an afternoon run cannot suppress the next morning’s results.

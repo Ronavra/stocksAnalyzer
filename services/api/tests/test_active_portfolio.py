@@ -139,3 +139,17 @@ def test_unresolved_buy_preserves_its_expiry_until_both_exact_prices_arrive():
     assert len(missing['orders'])==2
     fixed=advance(missing,[],prices(),exit_day,now,ranking_error='unavailable',fixed_horizon=5)
     assert not fixed['orders'] and not fixed['positions'] and fixed['completed_trades']==1
+
+
+def test_missing_early_execution_blocks_later_cash_recycling_and_flags_drawdown_gaps():
+    s=advance(None,candidates(2),prices(),ASOF,NOW,fixed_horizon=5)
+    exit_day=sessions_after('2026-10-22',5)
+    p=[r for r in prices() if not (r['company_id']==1 and r['price_date']=='2026-10-22')]
+    now=datetime.fromisoformat(exit_day+'T23:00:00+00:00')
+    missing=advance(s,[],p,exit_day,now,ranking_error='unavailable',fixed_horizon=5)
+    assert not missing['positions'] and not missing['fills']
+    assert len(missing['orders'])==4 and missing['cash']==100000.
+    assert missing['metric_history_complete'] is False
+    fixed=advance(missing,[],prices(),exit_day,now,ranking_error='unavailable',fixed_horizon=5)
+    assert fixed['completed_trades']==2 and not fixed['orders']
+    assert fixed['metric_history_complete'] is False

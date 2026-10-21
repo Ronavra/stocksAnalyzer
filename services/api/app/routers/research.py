@@ -19,7 +19,7 @@ from ..market_calendar import latest_completed_session, NY
 from ..research.daily_schedule import schedule_status
 from ..research.market_freshness import market_freshness
 from ..research.model_identity import MODEL_VERSION
-from ..research.source_coverage import load_coverage
+from ..research.source_coverage import load_coverage, coverage_from_inventory
 
 router=APIRouter(prefix="/api/v1/research",tags=["research"],route_class=RetryClockSkewRoute)
 
@@ -56,56 +56,31 @@ def candidates():
 
 @router.get("/data-audit")
 def data_audit():
-    db=get_supabase(); d=db.rpc("research_data_audit").execute().data or {}; total=d.get("universe",0)
-    def item(key,label):
-        count=d.get(key,0); pct=round(100*count/total,1) if total else 0
-        return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,"status":"strong" if pct>=95 else "partial"}
-    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("earnings","Historical earnings events")]
-    snapshots=load_snapshots(db,(datetime.now(timezone.utc)-timedelta(days=8)).isoformat())
-    universe_ids={r["id"] for r in db.table("companies").select("id").eq("is_sp500",True).execute().data or []}
-    grouped={}
-    for row in snapshots:
-        if row["company_id"] in universe_ids:
-            grouped.setdefault(row["company_id"],[]).append(row)
-    count=sum(consensus_score(history,datetime.now(timezone.utc).date().isoformat())["available"] for history in grouped.values())
-    disclosed=paged(db.table("company_disclosures").select("id,company_id")
-                    .gte("published_at",(datetime.now(timezone.utc)-timedelta(days=90)).isoformat()).order("id"))
-    disclosure_companies=len({r["company_id"] for r in disclosed}&universe_ids)
-    today=datetime.now(timezone.utc).date()
-    future_eps=paged(db.table("earnings_events").select("id,company_id,estimated_eps")
-                    .gte("reported_date",today.isoformat()).lte("reported_date",(today+timedelta(days=120)).isoformat())
-                    .order("id"))
-    eps_companies=len({r["company_id"] for r in future_eps if r.get("estimated_eps") is not None}&universe_ids)
-    layers.append({"key":"upcoming_eps_consensus","label":"Upcoming earnings EPS consensus · 120 days",
-        "companies":eps_companies,"total":total,"coverage_pct":round(100*eps_companies/total,1) if total else 0,
-        "status":"strong" if eps_companies>=total*.95 else "partial"})
-    layers.append({"key":"disclosures","label":"SEC disclosures · past 90 days","companies":disclosure_companies,"total":total,
-        "coverage_pct":round(100*disclosure_companies/total,1) if total else 0,"status":"observed"})
-    for table,label in (("corporate_guidance_events","Corporate guidance"),("news_events","News articles")):
-        recent_col="published_at" if table=="news_events" else "event_date"
-        ids=paged(db.table(table).select("id,company_id").gte(recent_col,(today-timedelta(days=90)).isoformat()).order("id"))
-        n=len({r["company_id"] for r in ids}&universe_ids)
-        layers.append({"key":table,"label":label,"companies":n,"total":total,
-            "coverage_pct":round(100*n/total,1) if total else 0,"status":"partial" if n<total*.95 else "strong"})
-    layers.append({"key":"analyst_consensus","label":"Current analyst recommendations","companies":count,"total":total,
-                   "coverage_pct":round(100*count/total,1) if total else 0,"status":"strong" if total and count>=total*.95 else "partial"})
-    notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value."]
-    notes.append("News sentiment is attributed to the provider. SEC guidance uses explicit annual ranges with source evidence; unparsed releases and missing bank capital ratios remain unknown.")
-    notes.append("Fiscal EPS/revenue estimate snapshots are audited separately from upcoming report estimates and analyst recommendation consensus. None of these coverage counts establish predictive value.")
-    reports=(db.table("pipeline_runs").select("metadata,finished_at,status")
-             .eq("pipeline","research_sources_refresh").contains("metadata",{"financial_audit":{}}).order("started_at",desc=True).limit(1).execute().data or [])
-    report=next((r for r in reports if (r.get("metadata") or {}).get("financial_audit")),None)
-    financial=((report.get("metadata") or {}).get("financial_audit") or {}) if report else {}
-    if financial:
-        notes.append("Financial freshness is checked against SEC filing periods; retrieval success does not imply complete data.")
-    coverage=load_coverage(db,financial_report=report or {})
+    snapshot=get_supabase().rpc("research_dashboard_data_audit").execute().data or {}
+    d=snapshot.get("audit") or {}; total=d.get("universe",0)
+    counts=snapshot.get("counts") or {}
+    def item(key,label,observed=False):
+        count=counts.get(key,d.get(key,0)); pct=round(100*count/total,1) if total else 0
+        return {"key":key,"label":label,"companies":count,"total":total,"coverage_pct":pct,
+                "status":"observed" if observed else "strong" if pct>=95 else "partial"}
+    layers=[item("prices","Daily prices"),item("features","Price features"),item("setups","Current setup metrics"),
+            item("fundamentals","Fundamentals"),item("valuation","Valuation"),item("earnings","Historical earnings events"),
+            item("upcoming_eps_consensus","Upcoming earnings EPS consensus · 120 days"),
+            item("disclosures","SEC disclosures · past 90 days",True),item("corporate_guidance_events","Corporate guidance"),
+            item("news_events","News articles"),item("analyst_consensus","Current analyst recommendations")]
+    report=snapshot.get("financial_report") or {}
+    financial=(report.get("metadata") or {}).get("financial_audit") or {}
+    coverage=coverage_from_inventory(snapshot.get("inventory") or [],snapshot.get("calendars") or [],
+                                     report,snapshot.get("source_checks") or [])
     estimate_family=next((f for f in coverage["families"] if f["key"]=="estimates"),{})
-    estimate_count=estimate_family.get("covered_companies",0)
-    layers.append({"key":"estimates","label":"Current fiscal EPS / revenue estimates","companies":estimate_count,
-                   "total":total,"coverage_pct":round(100*estimate_count/total,1) if total else 0,
-                   "status":"strong" if total and estimate_count>=total*.95 else "partial"})
+    counts["estimates"]=estimate_family.get("covered_companies",0)
+    layers.append(item("estimates","Current fiscal EPS / revenue estimates"))
+    notes=["Company counts show coverage, not filing freshness, field completeness, or predictive value.",
+           "Free calendar freshness and missing dates are audited separately from stored upcoming EPS estimates. Unknown calendars block live selection.",
+           "News sentiment is attributed to the provider. SEC guidance uses explicit ranges; unparsed releases remain unknown.",
+           "Fiscal estimates and financial statements retain their observation dates; coverage does not establish predictive value."]
     return {"universe":total,"layers":layers,"missing_price_tickers":d.get("missing_price_tickers",[]),"notes":notes,
-            "source_families":coverage["families"],"source_checks":coverage["source_checks"],"all_major_data_complete":coverage["all_major_data_complete"],
+            "source_families":coverage["families"],"source_checks":coverage["source_checks"],"all_major_data_complete":False,
             "company_gaps":[{"ticker":c["ticker"],"gaps":[{"key":x["key"],"label":x["label"],"status":x["status"]} for x in c["layers"] if x["key"] in c["gaps"]]} for c in coverage["companies"]],
             "financial_quality":financial.get("summary"),"financial_checked_at":financial.get("finished_at"),
             "financial_gaps":[r for r in financial.get("companies",[]) if r.get("status")!="current" or r.get("missing_fields")]}

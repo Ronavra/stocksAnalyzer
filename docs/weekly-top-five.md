@@ -153,3 +153,60 @@ The weekly validation workflow runs Saturdays at 09:45 Asia/Jerusalem, with
 manual dispatch and a push trigger for changes to the experiment. Daily and
 weekly selection schedules remain unchanged. An unfinished/failed validation
 does not promote a model.
+
+## Active ten-stock paper account
+
+The main dashboard now shows `active-ten-v1`, a persistent funded paper account,
+separate from the frozen weekly publication ledger. This is not connected to a
+broker and does not imply the user executed any recommendation. It starts with
+100,000 USD of simulated cash. Historical cohorts are research history, not an
+accumulating list of current buys.
+
+The daily job marks existing positions and resolves previously scheduled orders
+at their exact close. A new decision uses the current collection timestamp and
+executes at the next NYSE session after the decision's New York calendar day;
+it never buys at yesterday's already known close. Missing execution prices stay
+unresolved and block new allocation; they are never moved to a favorable later
+close. Atomic append-only snapshots use a revision lease and deduplicate each New York
+day/market-close pair. A failed research review can be repaired in a later
+snapshot; a newly completed close can also advance the account,
+so concurrent daily/weekly runs cannot duplicate positions or spend cash twice.
+
+Weekly review is the first available daily run in each New York Monday week.
+Initial and routine purchases target at most 10% of account equity, at most 30%
+per known sector, and 10 unique held stocks. Both weights are rechecked at the
+execution close; subsequent price drift produces concentration alerts. Up to
+60 paired exact-session returns screen new entries for correlation >=0.85;
+fewer than 40 usable pairs blocks that entry. These are initial research
+parameters, not optimized allocation advice. Cash remains when the screen
+cannot fill all positions. Routine weekly replacements need a five-point
+research-score improvement, with at most two replacements. Research scores
+are not expected returns. Earnings risk and confirmed failed score thresholds
+can trigger earlier exits outside that routine cap. Unknown financial/calendar
+data causes a review alert, rather than an automatic sale or an assumption of
+safety. The account cannot guarantee exiting before newly announced earnings.
+
+Holdings are reviewed after 20 exchange sessions and may be renewed if still
+eligible. Live entry screening excludes earnings across the full 20-session
+execution window using current observed calendars. It reuses the existing
+45/35/10/10 ranking, including its five-day setup features. Twenty sessions is
+an experimental review target, not a validated ideal holding period.
+
+Three separate forward research accounts start together from current observed
+inputs, with the same conservative twenty-day candidate pool, ten-position
+limit and 0.10% per-side cost scenario. They schedule fixed exits after 5/10/20
+sessions, with earlier risk exits, and make weekly entries into free slots.
+They do not perform routine score replacements or renew expiry dates. They
+record equity, drawdown, costs, traded notional, completed positions and a
+SPY price-return benchmark beginning at the first eligible future execution
+close. They are distinct from the renewable active account. There is no claim
+that any horizon wins until enough frozen forward outcomes have accumulated.
+Returns use stored close prices, exclude dividends/taxes, and are not verified
+brokerage execution or corporate-action-adjusted total returns.
+
+Install `services/api/sql/active_portfolio.sql` before running
+`python scripts/refresh_active_portfolio.py`. `--dry-run` previews without a
+snapshot write. The API's read-only `/api/v1/research/active-portfolio` serves
+the latest persisted account; a GET never mutates holdings. The GitHub daily
+and weekly workflows and Windows daily runner update it. No old publication,
+model promotion gate or historical result is replaced by this account.

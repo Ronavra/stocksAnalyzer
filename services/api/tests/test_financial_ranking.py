@@ -162,3 +162,15 @@ def test_year_over_year_growth_does_not_compare_partial_and_total_revenue():
     snapshot,error=finance.financial_snapshot(rows,ASOF,inputs["audit"]["companies"][0])
     assert error is None and snapshot["previous"] is None
     assert finance.factors(snapshot,10)["revenue_growth"] is None
+
+
+def test_twenty_day_calendar_gate_is_explicit_and_does_not_change_legacy_five_day_policy():
+    inputs,rows=inputs_and_candidates()
+    upcoming={r['company_id']:{'calendar_status':'current','within_execution_horizons':[]} for r in rows}
+    upcoming[10]['within_execution_horizons']=[20]
+    short,_=finance.rank_candidates(rows,inputs,ASOF,now=NOW,upcoming=upcoming)
+    long,report=finance.rank_candidates(rows,inputs,ASOF,now=NOW,upcoming=upcoming,primary_horizon=20,include_rejections=True,top=None)
+    assert 10 in [p['row']['company_id'] for p in short]
+    assert 10 not in [p['row']['company_id'] for p in long]
+    assert report['company_rejections']['10']=='earnings_within_primary_horizon'
+    assert report['primary_horizon_days']==20

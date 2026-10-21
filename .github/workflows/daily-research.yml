@@ -71,6 +71,7 @@ jobs:
           PRICE_CREDIT_BUDGET: '150'
         run: python scripts/run_daily_cycle.py
       - name: Confirm persisted pipeline health
+        id: market_health
         if: success() && steps.daily_gate.outputs.sources == 'true'
         run: python scripts/validate_daily_cycle.py
       - name: Refresh free earnings calendars and EPS results
@@ -95,6 +96,19 @@ jobs:
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' }}
         continue-on-error: true
         run: python scripts/refresh_analyst_consensus.py --max-age-hours 24
+      - name: Update the funded ten-stock paper portfolio
+        if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' && steps.market_health.outcome == 'success' }}
+        run: |
+          python scripts/refresh_active_portfolio.py
+          python - <<'PY'
+          from fastapi.testclient import TestClient
+          from app.main import app
+          response=TestClient(app).get('/api/v1/research/active-portfolio')
+          assert response.status_code==200,response.text
+          account=response.json()['portfolio']
+          assert len(account['positions'])<=10
+          print('Active portfolio HTTP check: 200; positions',len(account['positions']),'pending',len(account['orders']))
+          PY
       - name: Collect news and management guidance independently
         if: ${{ !cancelled() && steps.daily_gate.outputs.sources == 'true' }}
         continue-on-error: true

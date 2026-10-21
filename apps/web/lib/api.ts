@@ -69,3 +69,9 @@ export async function getSystemHealth(){
  const res=await apiFetch("/api/v1/research/system-health",{cache:"no-store"});
  return res.json();
 }
+
+export type ActivePosition={company_id:number;ticker:string;sector:string;shares:number;entry_price:number;entry_date:string;review_due:string;current_price:number|null;price_date:string|null;weight:number|null};
+export type ActiveOrder={side:'buy'|'sell';company_id:number;ticker:string;execute_on:string;budget?:number;reason:string};
+export type HoldingExperiment={equity:number|null;costs:number;max_drawdown:number;completed_trades:number;traded_notional:number;benchmark_value?:number|null};
+export type ActivePortfolioData={expected_market_date?:string;experiments?:Record<string,HoldingExperiment>;status:string;recorded_at?:string;portfolio?:{positions:ActivePosition[];orders:ActiveOrder[];actions:{ticker:string;action:string;reason:string}[];alerts:string[];as_of_date:string;decision_at:string;equity:number|null;cash:number;cash_weight:number|null;costs:number}};
+export async function getActivePortfolio():Promise<ActivePortfolioData>{return (await apiFetch('/api/v1/research/active-portfolio',{cache:'no-store'})).json();}

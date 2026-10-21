@@ -56,6 +56,7 @@ def main():
     # publication failure is required and must not be reported as daily success.
     if earnings_ok:
         run_script("run_weekly_cycle.py")
+    run_script("refresh_active_portfolio.py")
     if not run_script("refresh_portfolio_returns.py",required=False):
         incomplete.append("dividend-adjusted portfolio evaluation")
     elif not run_script("check_portfolio_comparison.py",required=False):

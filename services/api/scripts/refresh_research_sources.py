@@ -39,15 +39,11 @@ def recent_success(db,max_age_hours,pipeline):
     return rows[0] if age<=max_age_hours else None
 
 def refresh_sources(earnings_only,include_guidance,timings,sec_only=False):
-    # Keep the paid earnings source fresh even if SEC access is denied.
+    # Refresh free calendars/results independently of SEC access.
     if not sec_only:
-        timings["massive_earnings_seconds"]=run(
-            "ingest_massive_earnings.py","--incremental","--lookback-hours","30"
-        )
+        timings["free_earnings_seconds"]=run("refresh_free_earnings.py")
         if include_guidance:
-            timings["massive_guidance_seconds"]=run(
-                "ingest_massive_guidance.py","--incremental","--lookback-hours","30"
-            )
+            raise ValueError("Paid guidance is disabled; SEC guidance is collected by refresh_enrichment.py")
     if not earnings_only:
         # SEC has a 10 req/s fair-access ceiling, not a daily quota.
         timings["sec_fundamentals_seconds"]=run(
@@ -65,10 +61,10 @@ def financial_audit(started):
 def main():
     ap=argparse.ArgumentParser(description="Refresh non-price research sources with API-safe incremental rules")
     ap.add_argument("--max-age-hours",type=float,default=0,help="Skip the refresh if a successful source refresh is newer than this")
-    ap.add_argument("--include-guidance",action="store_true",help="Also sync Massive corporate guidance; disabled by default until plan access is verified")
+    ap.add_argument("--include-guidance",action="store_true",help="Deprecated: paid guidance is disabled; use SEC disclosures")
     modes=ap.add_mutually_exclusive_group()
-    modes.add_argument("--earnings-only",action="store_true",help="Refresh Massive earnings without SEC; use for the weekly signal freeze")
-    modes.add_argument("--sec-only",action="store_true",help="Refresh SEC filings and valuation without fetching Massive earnings again")
+    modes.add_argument("--earnings-only",action="store_true",help="Refresh free earnings calendars/results without SEC")
+    modes.add_argument("--sec-only",action="store_true",help="Refresh SEC filings and valuation independently")
     a=ap.parse_args()
     if a.sec_only and a.include_guidance:
         ap.error("--include-guidance cannot be combined with --sec-only")
@@ -77,6 +73,8 @@ def main():
     pipeline=EARNINGS_PIPELINE if a.earnings_only else FULL_PIPELINE
     mode="earnings_only" if a.earnings_only else "sec_only" if a.sec_only else "full_research_sources"
     recent=recent_success(db,a.max_age_hours,pipeline)
+    if recent and not a.sec_only and (recent.get("metadata") or {}).get("earnings_provider") != "free":
+        recent=None
     if recent:
         print(f"Research sources already refreshed recently at {recent.get('finished_at')}; skipping duplicate calls.")
         # Source filings can be reused, but valuations follow the latest price
@@ -105,6 +103,7 @@ def main():
             "status":"success",
             "metadata":{
                 "mode":mode,
+                "earnings_provider":"free" if not a.sec_only else None,
                 "timings":timings,
                 "coverage":{
                     "fundamentals":audit.get("fundamentals"),

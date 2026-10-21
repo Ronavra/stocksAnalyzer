@@ -1,4 +1,4 @@
-from app.research.earnings_catalysts import upcoming_earnings
+from app.research.earnings_catalysts import upcoming_from_events
 
 class Query:
     def __init__(self,rows): self.rows=rows
@@ -19,7 +19,7 @@ def test_upcoming_reports_respect_trading_windows_and_capture_time():
             {'company_id':3,'reported_date':'2026-09-15','reported_eps':None,'captured_at':'2026-09-03'}]
     class Db:
         def table(self,name): assert name=='earnings_events';return Query(events.copy())
-    result=upcoming_earnings(Db(),[{'company_id':i} for i in (1,2,3)],'2026-09-04','2026-09-05')
+    result=upcoming_from_events([e for e in events if e['captured_at']<='2026-09-05'],'2026-09-04')
     assert set(result)=={1,3}
     assert result[1]['within_horizons']==[5,10,20] # Labor Day is excluded.
     assert result[3]['within_horizons']==[10,20]

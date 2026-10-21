@@ -335,7 +335,7 @@ def load_earnings_features(db,by_company,spy_items):
     groups={}
     for version in rows:
         r={**version["snapshot"],"observed_at":version["observed_at"],"event_id":version["event_id"]}
-        if r.get("source")=="massive_benzinga":
+        if r.get("source") in ("massive_benzinga","alphavantage","yahoo_finance"):
             groups.setdefault(r["company_id"],[]).append(r)
 
     for cid,events in groups.items():
@@ -407,7 +407,14 @@ def earnings_asof(events,cid,asof):
     known=[x for x in latest.values() if x.get("reported")]
     if not known:
         return {k:None for k in EARNINGS_FEATURES}
-    ordered=sorted(known,key=lambda x:(x["reported_date"],x["observed_at"]))
+    # Different providers can describe the same report. Count it once in the
+    # beat streak and retain a single provider pair at this as-of cutoff.
+    by_report={}
+    for event in known:
+        prior=by_report.get(event["reported_date"])
+        if prior is None or event["observed_at"]>prior["observed_at"]:
+            by_report[event["reported_date"]]=event
+    ordered=sorted(by_report.values(),key=lambda x:(x["reported_date"],x["observed_at"]))
     item=ordered[-1]
     vals=dict(item["values"])
     streak=0

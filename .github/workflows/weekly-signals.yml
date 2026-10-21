@@ -27,7 +27,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+      ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
       SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
       FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
     steps:
@@ -42,9 +42,8 @@ jobs:
         run: |
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
-          test -n "$MASSIVE_API_KEY"
       - name: Compile research source refresh files
-        run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/ingest_massive_earnings.py scripts/generate_weekly_signals.py scripts/backtest_calibrated_model.py app/providers/sec.py app/providers/massive.py app/research/calibrated_model.py
+        run: python -m py_compile scripts/refresh_research_sources.py scripts/ingest_sec_fundamentals.py scripts/build_daily_valuation.py scripts/refresh_free_earnings.py scripts/generate_weekly_signals.py scripts/backtest_calibrated_model.py app/providers/sec.py app/providers/free_earnings.py app/research/calibrated_model.py
       - name: Ensure research sources are fresh
         run: python scripts/refresh_research_sources.py --earnings-only --max-age-hours 4
       - name: Verify SEC fundamentals before financial ranking

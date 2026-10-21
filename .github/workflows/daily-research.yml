@@ -102,6 +102,9 @@ jobs:
       - name: Publish the weekly shortlist when Sunday publication is due
         if: ${{ success() && steps.daily_gate.outputs.sources == 'true' }}
         run: python scripts/run_weekly_cycle.py
+      - name: Update the funded ten-stock paper portfolio
+        if: ${{ success() && steps.daily_gate.outputs.sources == 'true' }}
+        run: python scripts/refresh_active_portfolio.py
       - name: Preview weekly readiness after a pipeline change
         if: ${{ success() && steps.daily_gate.outputs.sources == 'true' && github.event_name == 'push' }}
         run: python scripts/generate_weekly_signals.py --dry-run

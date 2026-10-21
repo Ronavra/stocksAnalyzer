@@ -189,6 +189,11 @@ def scorecard():
         }
     }
 
+@router.get("/active-portfolio")
+def active_portfolio():
+    from ..research.active_portfolio import load_active_portfolio
+    return load_active_portfolio(get_supabase())
+
 @router.get("/portfolio-comparison")
 def portfolio_comparison():
     return load_portfolio_comparison(get_supabase())

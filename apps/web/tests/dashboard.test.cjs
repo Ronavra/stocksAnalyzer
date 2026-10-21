@@ -58,3 +58,15 @@ test('archive deferral and short history are visible without claiming validation
  assert.match(html,/interrupted/);
  assert.doesNotMatch(html,/model promoted|Validation passed/);
 });
+
+test('one active portfolio separates real holdings, pending orders and research history',()=>{
+ const Active=load('app/ActivePortfolio.tsx').default;
+ const empty=renderToStaticMarkup(React.createElement(Active,{}));
+ assert.match(empty,/could not be loaded/);
+ const p={positions:[{company_id:1,ticker:'ABC',sector:'Health',entry_price:100,entry_date:'2026-10-01',review_due:'2026-10-29',current_price:null,price_date:null,weight:null}],orders:[{side:'buy',company_id:2,ticker:'DEF',execute_on:'2026-10-22',budget:10000,reason:'free_slot'}],actions:[{ticker:'ABC',action:'review',reason:'data_or_eligibility_review'}],alerts:['ABC: earnings calendar unknown'],as_of_date:'2026-10-20',decision_at:'2026-10-21',equity:null,cash:90000,cash_weight:null,costs:10};
+ const html=renderToStaticMarkup(React.createElement(Active,{data:{status:'ok',portfolio:p,experiments:{20:{equity:100000,costs:0,max_drawdown:0,completed_trades:0,traded_notional:0}}}}));
+ assert.match(html,/1 held · 2 after pending orders · maximum 10/);
+ assert.match(html,/REVIEW/);assert.match(html,/Missing close/);assert.match(html,/Pending simulated actions/);
+ assert.match(html,/not sent to a broker/);assert.match(html,/no holding period has been validated/);
+ assert.match(html,/Collection starts now/);assert.match(html,/Unavailable/);
+});

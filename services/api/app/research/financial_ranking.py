@@ -247,7 +247,9 @@ def financial_scores(candidates,inputs,asof,live=True,now=None,diagnostics=None)
     return result,rejected
 
 
-def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=5,upcoming=None):
+def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=5,upcoming=None,primary_horizon=5,include_rejections=False):
+    if primary_horizon not in (5,10,20):
+        raise ValueError("Unsupported ranking horizon")
     financial_gaps={}
     financial,rejected=financial_scores(candidates,inputs,asof,live,now,diagnostics=financial_gaps)
     picks=[]; earnings=earnings or {}; analyst_status=Counter()
@@ -259,7 +261,7 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
         future=(upcoming or {}).get(cid) or {}
         if live and upcoming is not None and future.get("calendar_status") != "current":
             rejected[cid]="earnings_calendar_unknown"; continue
-        if 5 in future.get("within_execution_horizons",future.get("within_horizons",[])):
+        if primary_horizon in future.get("within_execution_horizons",future.get("within_horizons",[])):
             rejected[cid]="earnings_within_primary_horizon"; continue
         technical=number(row.get("opportunity_score"))
         if technical is None or (number(row.get("setup_sample_size")) or 0)<50:
@@ -283,6 +285,8 @@ def rank_candidates(candidates,inputs,asof,earnings=None,live=True,now=None,top=
     picks.sort(key=lambda p:(-p["score"],str(p["row"]["company_id"])))
     limit=len(picks) if top is None else min(top,5)
     return picks[:limit],{"policy_version":POLICY_VERSION,"weights":WEIGHTS,
+                              "primary_horizon_days":primary_horizon,
+                              **({"company_rejections":{str(k):v for k,v in rejected.items()}} if include_rejections else {}),
                               "price_date":asof,"candidates":len(candidates),"financial_eligible":len(financial),
                               "ranking_eligible":len(picks),"selected":min(len(picks),limit),
                               "rejected":dict(Counter(rejected.values())),

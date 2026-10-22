@@ -45,6 +45,8 @@ def estimate_asof(rows, asof):
         # A very old snapshot is not a seven-day revision.
         if cutoff-timestamp(previous["captured_at"])>timedelta(days=days+7): continue
         for metric in ("eps","revenue"):
+            issue=metric+'_consensus_outside_interval'
+            if any(issue in (r.get('normalization') or {}).get('issues',[]) for r in (current,previous)):continue
             currency=current.get(metric+"_currency")
             if not currency or currency!=previous.get(metric+"_currency"): continue
             if metric=="eps" and (current.get("eps_basis") not in ("gaap","adjusted","non-gaap")

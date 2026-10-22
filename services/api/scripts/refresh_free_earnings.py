@@ -13,6 +13,8 @@ from app.db.client import get_supabase
 from app.providers.free_earnings import YahooEarningsProvider, AlphaCalendarProvider, yahoo_payload, calendar_row
 from app.research.free_calendar import calendar_assessment
 from app.market_calendar import latest_session_close, NY
+from app.providers.corporate_calendar import projected_dividends
+from app.research.collection import save_events
 
 
 def fresh_company_ids(previous, now):
@@ -39,7 +41,7 @@ def refresh(db, provider=None, delay=0.6, now=None):
         raise RuntimeError('Free earnings collection is already running; retry after it completes')
     run_id = claim['id']; provider = provider or YahooEarningsProvider()
     report = {'universe':len(companies),'requested':0,'reused':0,'events_stored':0,'errors':[],
-              'alpha_calendar':'not_configured','paid_endpoints_called':False,'revenue_surprise_available':False}
+              'projected_dividends_stored':0,'alpha_calendar':'not_configured','paid_endpoints_called':False,'revenue_surprise_available':False}
     try:
         previous = db.rpc('free_earnings_calendar').execute().data or []
         fresh = fresh_company_ids(previous, now)
@@ -69,12 +71,16 @@ def refresh(db, provider=None, delay=0.6, now=None):
                 calendar, events = provider.fetch(company['ticker'])
                 observed = datetime.now(timezone.utc).isoformat()
                 snapshot, payload = yahoo_payload(company['id'],calendar,events,observed)
+                actions=projected_dividends(company['id'],calendar,observed,company['ticker'])
             except Exception as exc:
                 report['errors'].append({'ticker':company['ticker'],'type':type(exc).__name__})
                 snapshot = calendar_row(company['id'],'yahoo_finance',[],datetime.now(timezone.utc).isoformat())
-                snapshot['status'] = 'error'; payload = []
+                snapshot['status'] = 'error'; payload = []; actions=[]
             # DB errors abort: never hide persistence failures as provider gaps.
             db.table('earnings_calendar_snapshots').insert(snapshot).execute()
+            if actions:
+                save_events(db,actions)
+                report['projected_dividends_stored']+=len(actions)
             if payload:
                 db.table('earnings_events').upsert(payload,on_conflict='company_id,reported_date,source').execute()
                 report['events_stored'] += len(payload)

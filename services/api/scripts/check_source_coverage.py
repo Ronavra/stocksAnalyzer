@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 API_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(API_DIR)); load_dotenv(API_DIR / ".env")
 from app.db.client import get_supabase
-from app.research.source_coverage import load_coverage
+from app.research.source_coverage import coverage_from_inventory
 
 
 def main():
@@ -16,7 +16,9 @@ def main():
     started = datetime.now(timezone.utc).isoformat()
     run = db.table("pipeline_runs").insert({"pipeline": "source_coverage_audit", "status": "running", "started_at": started}).execute().data[0]
     try:
-        coverage = load_coverage(db)
+        snapshot=db.rpc('research_dashboard_data_audit').execute().data or {}
+        coverage=coverage_from_inventory(snapshot.get('inventory') or [],snapshot.get('calendars') or [],
+            snapshot.get('financial_report') or {},snapshot.get('source_checks') or [])
         if not coverage["companies"]:
             raise RuntimeError("Source inventory contains no companies")
         report = {"universe": len(coverage["companies"]), "families": coverage["families"],

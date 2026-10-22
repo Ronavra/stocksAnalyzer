@@ -24,6 +24,22 @@ async def main():
             events,partial=await calendar_fallback(client,stamp)
             report['bls_html_calendar']={'events':len(events),'missing_months':len(partial)}
         except Exception as exc:report['errors'].append({'source':'bls_html_calendar','type':type(exc).__name__})
+    # Independent schema evidence for the binary BEA contract (no data values).
+    try:
+        from app.providers.bea_public import URL,gdp_workbook,cells,NS
+        from zipfile import ZipFile
+        from io import BytesIO
+        import xml.etree.ElementTree as ET
+        async with httpx.AsyncClient(timeout=30) as client:
+            response=await client.get(URL,follow_redirects=True);response.raise_for_status()
+        report['bea_contract']={'bytes':len(response.content)}
+        with ZipFile(BytesIO(response.content)) as z:
+            book=ET.fromstring(z.read('xl/workbook.xml'))
+            report['bea_contract']['sheets']=[x.get('name') for x in book.findall('s:sheets/s:sheet',NS)][:15]
+        report['bea_contract']['parsed_rows']=len(gdp_workbook(response.content,stamp))
+    except Exception as exc:
+        report.setdefault('bea_contract',{})['error']=type(exc).__name__
+        if isinstance(exc,ValueError):report['bea_contract']['detail']=str(exc)[:120]
     print(json.dumps(report,indent=2),flush=True)
     # Public availability is observed, not an excuse to mask an outage as complete.
     return report

@@ -49,7 +49,7 @@ def gdp_workbook(raw,observed_at):
         if selected is None:raise ValueError('BEA real GDP table 1.1.6 missing')
         rows=cells(selected,strings)
     text=' '.join(str(v) for row in rows[:8] for v in row.values() if v)
-    base=re.search(r'chained\s+(\d{4})\s+dollars',text,re.I)
+    base=re.search(r'chained\s*\(?\s*(\d{4})\s*\)?\s+dollars',text,re.I)
     if not base:raise ValueError('BEA real GDP units not explicit')
     units=f'billions of chained {base[1]} dollars'
     data_index=next((i for i,row in enumerate(rows) if any(str(v or '').strip().lower()=='gross domestic product' for v in row.values())),None)

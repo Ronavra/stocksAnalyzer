@@ -107,6 +107,10 @@ async def get_page(client,url):
 async def page_observations(client,series,observed_at,units):
     if series=='DTWEXBGS':return dollar_rows(await get_page(client,FED_DOLLAR),observed_at,units)
     if series=='DCOILWTICO':return wti_rows(await get_page(client,EIA_WTI),observed_at,units)
+    if series=='GDPC1':
+        from .bea_public import observations
+        try:return await observations(client,observed_at)
+        except Exception:pass
     url=f'https://fred.stlouisfed.org/series/{series}'
     return fred_page_rows(series,await get_page(client,url),observed_at,units,url)
 
@@ -117,5 +121,31 @@ async def calendar_fallback(client,observed_at):
         url=f'https://www.bls.gov/schedule/{month.year}/{month.month:02d}_sched_list.htm'
         try:rows.extend(bls_html_events(await get_page(client,url),observed_at,url))
         except Exception as exc:failures.append(type(exc).__name__)
-    if not rows:raise ValueError('BLS HTML calendars unavailable')
+    if not rows:
+        for month in (day.replace(day=1),(day.replace(day=28)+timedelta(days=4)).replace(day=1)):
+            url=f'https://www.newyorkfed.org/research/calendars/i-{month.strftime("%b%y").lower()}.html'
+            try:rows.extend(nyfed_calendar_events(await get_page(client,url),observed_at,url,month))
+            except Exception as exc:failures.append(type(exc).__name__)
+    if not rows:raise ValueError('Official economic calendars unavailable')
     return rows,failures
+
+
+def nyfed_calendar_events(text,observed_at,url,month):
+    from app.research.guidance import release_text
+    label=month.strftime('%B')+r'\s*'+str(month.year)
+    if not re.search(label,release_text(text),re.I):raise ValueError('NY Fed calendar month mismatch')
+    result=[]
+    for row in table_rows(text):
+        for cell in row:
+            match=re.match(r'^(\d{1,2})\s*(?=[A-Za-z])',cell)
+            if not match:continue
+            day=date(month.year,month.month,int(match[1]))
+            for title,clock in re.findall(r'(.+?)\((\d{2}:\d{2})\)',cell[match.end():]):
+                title=title.strip()
+                if not title:continue
+                stamp=datetime.combine(day,datetime.strptime(clock,'%H:%M').time(),ZoneInfo('America/New_York')).isoformat()
+                payload={'title':title,'event_at':stamp}
+                result.append(dict(source='nyfed_calendar',source_record_id=f'{day}:{title}',source_url=url,
+                    title=title,event_at=stamp,observed_at=observed_at,fingerprint=fingerprint(payload)))
+    if not result:raise ValueError('NY Fed calendar has no timed events')
+    return result

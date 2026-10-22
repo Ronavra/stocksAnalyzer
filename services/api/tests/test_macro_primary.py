@@ -40,5 +40,5 @@ def test_fred_outage_uses_originating_agencies_and_reuses_bulk_downloads(monkeyp
             with pytest.raises(httpx.HTTPError):await provider.observations(client,'GDPC1',NOW)
             return rows
     rows=asyncio.run(run())
-    assert len(requests)==6 and all(r and r[0]['vintage_date'] is None for r in rows)
+    assert len(requests)==7 and all(r and r[0]['vintage_date'] is None for r in rows)
     assert rows[0][0]['source']=='nyfed_current' and rows[1][0]['source']=='us_treasury_current' and rows[3][0]['source']=='bls_current'

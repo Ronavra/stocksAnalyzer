@@ -41,12 +41,12 @@ async def refresh(db,provider):
                 except Exception as exc:
                     report['warnings'].append({'source':'bls_ics','type':type(exc).__name__})
                     events,partial=await calendar_fallback(client,now())
-                    report['calendar_source']='bls_official_html'
+                    report['calendar_source']='nyfed_official_html' if events[0]['source']=='nyfed_calendar' else 'bls_official_html'
                     if partial:report['warnings'].append({'source':'bls_html','unavailable_months':len(partial)})
                 for offset in range(0,len(events),500):
                     db.table('economic_calendar_observations').upsert(events[offset:offset+500],on_conflict='source,source_record_id,observed_at',ignore_duplicates=True,returning='minimal').execute()
                 report['calendar_events']=len(events)
-                check(db,'macro','bls_calendar','success',events=len(events),snapshot_at=events[0]['observed_at'],fed_and_bea_calendars_collected=False,source_format=report['calendar_source'])
+                check(db,'macro','nyfed_calendar' if events[0]['source']=='nyfed_calendar' else 'bls_calendar','success',events=len(events),snapshot_at=events[0]['observed_at'],fed_and_bea_calendars_collected=False,source_format=report['calendar_source'])
             except Exception as exc:
                 report['errors'].append({'source':'bls_calendar','type':type(exc).__name__})
                 check(db,'macro','bls_calendar','error',error_type=type(exc).__name__)

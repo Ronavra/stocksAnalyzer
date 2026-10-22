@@ -26,3 +26,9 @@ Source coverage uses the same bounded aggregate RPC as the dashboard, retaining
 all company/family coverage while avoiding repeated expensive inventories.
 Alternate allowlisted issuer pages can recover a blocked IR index; an observed
 fallback is recorded and unsupported call/transcript coverage remains visible.
+
+BEA's public Table 1.1.6 workbook supplies current quarterly real-GDP levels
+without an API key. Dates, chained-dollar base and table identity are verified.
+If BLS feeds/pages are unavailable, the New York Fed's explicitly dated economic
+indicator calendar retains the Fed as its source, including its Eastern times.
+It is not mislabelled as a successful BLS download or as a tenth macro series.

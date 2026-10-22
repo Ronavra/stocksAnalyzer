@@ -40,3 +40,31 @@ def test_one_csv_outage_does_not_skip_other_series_and_gdp_uses_public_table(mon
             return await p.observations(c,'GDPC1',NOW)
     rows=asyncio.run(run())
     assert sum('/graph.csv' in r for r in requests)==2 and rows[0]['source']=='fred_current_html'
+
+
+def test_nyfed_calendar_preserves_release_times_and_source():
+    from datetime import date
+    from app.providers.public_macro_pages import nyfed_calendar_events
+    html='<h2>November 2026</h2><table><tr><td>06<br>Employment Situation (08:30)<br>Consumer Survey (10:00)</td></tr></table>'
+    rows=nyfed_calendar_events(html,NOW,'https://www.newyorkfed.org/research/calendars/i-nov26.html',date(2026,11,1))
+    assert len(rows)==2 and rows[0]['source']=='nyfed_calendar'
+    assert rows[0]['event_at']=='2026-11-06T08:30:00-05:00'
+
+
+def test_bea_workbook_reads_real_gdp_quarters_without_key_or_backdated_vintages():
+    from io import BytesIO
+    from zipfile import ZipFile
+    from app.providers.bea_public import gdp_workbook
+    stream=BytesIO()
+    with ZipFile(stream,'w') as z:
+        z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="T10106" r:id="rId1"/></sheets></workbook>')
+        z.writestr('xl/_rels/workbook.xml.rels','<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
+        z.writestr('xl/worksheets/sheet1.xml','''<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+        <row><c r="A1" t="inlineStr"><is><t>Billions of chained 2017 dollars</t></is></c></row>
+        <row><c r="C2"><v>2026</v></c></row>
+        <row><c r="C3" t="inlineStr"><is><t>I</t></is></c><c r="D3" t="inlineStr"><is><t>II</t></is></c></row>
+        <row><c r="B4" t="inlineStr"><is><t>Gross domestic product</t></is></c><c r="C4"><v>24000</v></c><c r="D4"><v>24408.011</v></c></row>
+        </sheetData></worksheet>''')
+    rows=gdp_workbook(stream.getvalue(),NOW)
+    assert len(rows)==2 and rows[1]['observation_date']=='2026-04-01' and rows[1]['value']==24408.011
+    assert rows[1]['units']=='billions of chained 2017 dollars' and rows[1]['vintage_date'] is None

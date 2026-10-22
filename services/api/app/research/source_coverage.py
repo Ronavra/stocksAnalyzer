@@ -91,7 +91,7 @@ def company_coverage(raw, financial_audit=None, checked_at=None, now=None):
     owner_status='partial' if holdings or insiders else 'pending' if backlog.get('insider_pending') else 'unknown' if owner_checks else 'not_collected'
     add('ownership',owner_status,f"{insiders} parsed insider transactions; {holdings} public institutional holding observations, latest report {events.get('holdings_report_date') or 'unavailable'}. {backlog.get('insider_pending',0)} Form 4 filings pending; {backlog.get('insider_errors',0)} errors. Institutional source observations are not verified original 13F filing history.",events.get('observed_at'))
     macro_checks=[c for c in globals_ if c['family']=='macro']
-    fresh_series=sum(c['source']!='bls_calendar' and c['status']=='success' and recent(c['checked_at'],now,48) for c in macro_checks)
+    fresh_series=sum(c['source'] in ('DFF','DGS2','DGS10','CPIAUCSL','UNRATE','PAYEMS','GDPC1','DTWEXBGS','DCOILWTICO') and c['status']=='success' and recent(c['checked_at'],now,48) for c in macro_checks)
     macro_status='partial' if fresh_series else 'unavailable' if macro_checks else 'not_collected'
     vintages=any((c.get('metadata') or {}).get('historical_vintages') for c in macro_checks)
     add('macro',macro_status,f"{fresh_series}/9 macro series passed recent freshness checks. ALFRED vintages: {'configured' if vintages else 'unavailable; current CSV history must not be used as past-known values'}. BLS calendar checks are separate; Fed/BEA calendars and issuer currency/commodity exposures remain incomplete.")

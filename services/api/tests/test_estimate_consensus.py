@@ -39,3 +39,17 @@ def test_provider_retrospective_trend_keeps_todays_observation_time():
 def test_duplicate_fiscal_periods_are_deduplicated_before_bulk_write():
     rows = normalize(1, [record(), record(), record(period="0q", endDate="2026-10-31")], OBSERVED)
     assert len(rows) == 2 and {r["period_type"] for r in rows} == {"annual", "quarter"}
+
+
+def test_explicit_basis_and_currency_are_normalized_without_guessing():
+    row=normalize(1,[record(earningsEstimate={'avg':2,'epsBasis':'Non-GAAP','currency':'usd'})],OBSERVED)[0]
+    assert row['eps_basis']=='adjusted' and row['eps_currency']=='USD'
+    assert row['normalization']['basis_evidence']['field']=='earningsEstimate.epsBasis'
+    conflict=record(epsBasis='GAAP',earningsEstimate={'avg':2,'accountingBasis':'adjusted'})
+    assert normalize(1,[conflict],OBSERVED)[0]['eps_basis']=='unknown'
+    assert normalize(1,[record(earningsEstimate={'avg':2,'epsBasis':'diluted'})],OBSERVED)[0]['eps_basis']=='unknown'
+
+
+def test_consensus_outside_reported_interval_is_flagged_for_model_gating():
+    row=normalize(1,[record(earningsEstimate={'avg':20,'low':1,'high':3})],OBSERVED)[0]
+    assert 'eps_consensus_outside_interval' in row['normalization']['issues']

@@ -7,7 +7,6 @@ on:
       - ".github/workflows/evidence-source-recovery.yml"
       - "services/api/app/research/evidence.py"
       - "services/api/scripts/refresh_insider_transactions.py"
-      - "services/api/app/providers/macro.py"
 permissions:
   contents: read
 concurrency:

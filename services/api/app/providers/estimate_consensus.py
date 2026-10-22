@@ -17,6 +17,29 @@ def number(value):
         return None
 
 
+def scalar(value):
+    return value.get('raw') if isinstance(value,dict) else value
+
+
+def accounting_basis(record,eps):
+    aliases={'gaap':'gaap','us-gaap':'gaap','non-gaap':'adjusted','non gaap':'adjusted','adjusted':'adjusted','normalized':'adjusted'}
+    evidence=[]
+    for container,label in ((eps,'earningsEstimate'),(record,'record')):
+        for key in ('epsBasis','accountingBasis'):
+            raw=scalar(container.get(key))
+            if isinstance(raw,str) and raw.strip().lower() in aliases:
+                evidence.append((aliases[raw.strip().lower()],label+'.'+key,raw))
+    values={x[0] for x in evidence}
+    if len(values)!=1:
+        return 'unknown',{'reason':'conflicting_explicit_basis' if values else 'provider_does_not_state_basis'}
+    return evidence[0][0],{'field':evidence[0][1],'label':evidence[0][2]}
+
+
+def currency(value):
+    value=scalar(value)
+    return value.strip().upper() if isinstance(value,str) and len(value.strip())==3 and value.strip().isalpha() else None
+
+
 def normalize(company_id, records, observed_at):
     today = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).date()
     rows = {}
@@ -37,13 +60,15 @@ def normalize(company_id, records, observed_at):
         eps_avg, rev_avg = number(eps.get("avg")), number(revenue.get("avg"))
         if eps_avg is None and rev_avg is None:
             continue
+        basis,basis_evidence=accounting_basis(record,eps)
         row = {"company_id": company_id, "captured_date": today.isoformat(),
                "fiscal_period_end": period_end.isoformat(),
                "period_type": "quarter" if relative.endswith("q") else "annual",
                "relative_period": relative, "eps_consensus": eps_avg,
-               "revenue_consensus": rev_avg, "eps_basis": "unknown",
-               "eps_currency": eps.get("earningsCurrency"),
-               "revenue_currency": revenue.get("revenueCurrency"),
+               "revenue_consensus": rev_avg, "eps_basis": basis,
+               "normalization": {"version":"explicit-basis-v1","basis_evidence":basis_evidence,"issues":[]},
+               "eps_currency": currency(eps.get("earningsCurrency") or eps.get("currency")),
+               "revenue_currency": currency(revenue.get("revenueCurrency") or revenue.get("currency")),
                "source": "yahoo_finance", "captured_at": observed_at}
         for kind, values in (("eps", eps), ("revenue", revenue)):
             low, high = number(values.get("low")), number(values.get("high"))
@@ -53,6 +78,13 @@ def normalize(company_id, records, observed_at):
             count = number(values.get("numberOfAnalysts"))
             row.update({f"{kind}_low": low, f"{kind}_high": high,
                         f"{kind}_analyst_count": int(count) if count is not None and count >= 0 and count.is_integer() else None})
+        for metric in ('eps','revenue'):
+            avg=row.get(metric+'_consensus');low=row.get(metric+'_low');high=row.get(metric+'_high')
+            if avg is not None and ((low is not None and avg<low) or (high is not None and avg>high)):
+                row['normalization']['issues'].append(metric+'_consensus_outside_interval')
+            if row.get(metric+'_currency') is None:
+                row['normalization']['issues'].append(metric+'_currency_unknown')
+        if basis=='unknown':row['normalization']['issues'].append('eps_basis_unknown')
         # These are provider-reported retrospectives observed TODAY, not a
         # backfilled point-in-time archive of past estimates.
         row["provider_eps_trend"] = {k: number(v) for k, v in (record.get("epsTrend") or {}).items()}

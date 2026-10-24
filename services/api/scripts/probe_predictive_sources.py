@@ -41,7 +41,10 @@ async def main():
         report.setdefault('bea_contract',{})['error']=type(exc).__name__
         if isinstance(exc,ValueError):report['bea_contract']['detail']=str(exc)[:120]
     print(json.dumps(report,indent=2),flush=True)
-    # Public availability is observed, not an excuse to mask an outage as complete.
+    # The GDP parser and the current GDP source are required contracts. A green
+    # workflow must never conceal an unusable quarterly GDP feed.
+    if 'GDPC1' not in report['series'] or not report.get('bea_contract',{}).get('parsed_rows'):
+        raise SystemExit('Required GDP public-source contract failed; see sanitized report above')
     return report
 
 

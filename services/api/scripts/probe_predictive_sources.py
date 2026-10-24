@@ -40,6 +40,29 @@ async def main():
     except Exception as exc:
         report.setdefault('bea_contract',{})['error']=type(exc).__name__
         if isinstance(exc,ValueError):report['bea_contract']['detail']=str(exc)[:120]
+        # Public workbook layout diagnostics only: inspect header labels, never
+        # infer historical observations or record unknown GDP as verified.
+        try:
+            from app.providers.bea_public import cells,NS
+            with ZipFile(BytesIO(response.content)) as z:
+                from app.providers.bea_public import gdp_workbook
+                import posixpath
+                book=ET.fromstring(z.read('xl/workbook.xml'))
+                rels=ET.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+                rid=next(x.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                    for x in book.findall('s:sheets/s:sheet',NS) if x.get('name')=='T10106-Q')
+                target=next(x.get('Target') for x in rels if x.get('Id')==rid)
+                sheetpath=target.lstrip('/') if target.startswith('/') else posixpath.normpath('xl/'+target)
+                shared=[]
+                if 'xl/sharedStrings.xml' in z.namelist():
+                    shared=[''.join(x.itertext()) for x in ET.fromstring(z.read('xl/sharedStrings.xml'))]
+                rows=cells(ET.fromstring(z.read(sheetpath)),shared)
+                gi=next((i for i,row in enumerate(rows) if any('gross domestic product' in str(v or '').lower() for v in row.values())),None)
+                report['bea_contract']['layout']={'gdp_row':gi,
+                    'header':[{str(k):str(v)[:25] for k,v in sorted(row.items())[:12]} for row in rows[:8]],
+                    'gdp_sample':{str(k):str(v)[:18] for k,v in sorted(rows[gi].items())[:18]} if gi is not None else {}}
+        except Exception as diag:
+            report.setdefault('bea_contract',{})['diagnostic_error']=type(diag).__name__
     print(json.dumps(report,indent=2),flush=True)
     # The GDP parser and the current GDP source are required contracts. A green
     # workflow must never conceal an unusable quarterly GDP feed.

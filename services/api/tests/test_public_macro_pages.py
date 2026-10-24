@@ -60,11 +60,11 @@ def test_bea_workbook_reads_real_gdp_quarters_without_key_or_backdated_vintages(
         z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="T10106-Q" r:id="rId1"/></sheets></workbook>')
         z.writestr('xl/_rels/workbook.xml.rels','<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
         z.writestr('xl/worksheets/sheet1.xml','''<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
-        <row><c r="A1" t="inlineStr"><is><t>Billions of chained 2017 dollars</t></is></c></row>
-        <row><c r="C2"><v>2026</v></c></row>
-        <row><c r="C3" t="inlineStr"><is><t>I</t></is></c><c r="D3" t="inlineStr"><is><t>II</t></is></c></row>
-        <row><c r="B4" t="inlineStr"><is><t>Gross domestic product</t></is></c><c r="C4"><v>24000</v></c><c r="D4"><v>24408.011</v></c></row>
+        <row><c r="A1" t="inlineStr"><is><t>Table 1.1.6. Real Gross Domestic Product</t></is></c></row>
+        <row><c r="A2" t="inlineStr"><is><t>[Millions of chained (2017) dollars]</t></is></c></row>
+        <row><c r="D7" t="inlineStr"><is><t>2026Q1</t></is></c><c r="E7" t="inlineStr"><is><t>2026Q2</t></is></c><c r="F7" t="inlineStr"><is><t>2026Q3</t></is></c><c r="G7" t="inlineStr"><is><t>2026Q4</t></is></c></row>
+        <row><c r="B8" t="inlineStr"><is><t>    Gross domestic product</t></is></c><c r="C8" t="inlineStr"><is><t>A191RX</t></is></c><c r="D8"><v>24000000</v></c><c r="E8"><v>24408011</v></c></row>
         </sheetData></worksheet>''')
     rows=gdp_workbook(stream.getvalue(),NOW)
-    assert len(rows)==2 and rows[1]['observation_date']=='2026-04-01' and rows[1]['value']==24408.011
+    assert len(rows)==2 and rows[1]['observation_date']=='2026-04-01' and abs(rows[1]['value']-24408.011)<1e-6
     assert rows[1]['units']=='billions of chained 2017 dollars' and rows[1]['vintage_date'] is None

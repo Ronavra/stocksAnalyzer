@@ -57,7 +57,7 @@ def test_bea_workbook_reads_real_gdp_quarters_without_key_or_backdated_vintages(
     from app.providers.bea_public import gdp_workbook
     stream=BytesIO()
     with ZipFile(stream,'w') as z:
-        z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="T10106" r:id="rId1"/></sheets></workbook>')
+        z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="T10106-Q" r:id="rId1"/></sheets></workbook>')
         z.writestr('xl/_rels/workbook.xml.rels','<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
         z.writestr('xl/worksheets/sheet1.xml','''<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
         <row><c r="A1" t="inlineStr"><is><t>Billions of chained 2017 dollars</t></is></c></row>

@@ -23,3 +23,6 @@ services/api/model_history_gate.json
 services/api/portfolio_risk_research.json
 services/api/ablation_results.json
 services/api/dashboard_health_check.json
+
+services/api/twenty_day_research.json
+services/api/predictive_readiness_check.json

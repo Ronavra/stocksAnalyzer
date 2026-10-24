@@ -40,7 +40,7 @@ def gdp_workbook(raw,observed_at):
         selected=None
         for sheet in book.findall('s:sheets/s:sheet',NS):
             name=sheet.get('name','')
-            if name.lower()=='t10106' or re.fullmatch(r'(?:table\s*)?1\.1\.6\.?',name,re.I):
+            if name.lower() in ('t10106','t10106-q') or re.fullmatch(r'(?:table\s*)?1\.1\.6\.?',name,re.I):
                 rid=sheet.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
                 target=targets[rid]
                 path=target.lstrip('/') if target.startswith('/') else posixpath.normpath('xl/'+target)

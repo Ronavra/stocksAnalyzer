@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo
 
 
 def close_cutoff(day):
-    return datetime.combine(datetime.fromisoformat(day).date(), time(16), ZoneInfo("America/New_York"))
+    from ..market_calendar import is_trading_day,session_close
+    day=datetime.fromisoformat(day).date()
+    return session_close(day) if is_trading_day(day) else datetime.combine(day,time(16),ZoneInfo("America/New_York"))
 
 
 def timestamp(value):

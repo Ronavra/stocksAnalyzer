@@ -70,3 +70,11 @@ test('one active portfolio separates real holdings, pending orders and research 
  assert.match(html,/not sent to a broker/);assert.match(html,/no holding period has been validated/);
  assert.match(html,/Collection starts now/);assert.match(html,/Unavailable/);
 });
+
+test('predictive readiness distinguishes collected data from usable EPS basis and deferred training',()=>{
+ const Research=load('app/PredictiveResearch.tsx').default;
+ const html=renderToStaticMarkup(React.createElement(Research,{data:{history:{financial_observation_days:13,estimate_observation_days:13},quality:{estimate_companies:501,eps_basis_verified_companies:0,eps_basis_unknown_companies:501,fresh_macro_series:8},latest_twenty_day_validation:{status:'success',results:{outcome:'deferred_archive_required',blocked_reason:'Full price archive required'}}}}));
+ assert.match(html,/0 companies verified · 501 unknown/);assert.match(html,/8 \/ 9/);
+ assert.match(html,/training awaits the archive computer/);assert.match(html,/Full price archive required/);
+ assert.match(html,/at least 180 matured sample dates/);assert.doesNotMatch(html,/Model validated|Forecasts approved/);
+});

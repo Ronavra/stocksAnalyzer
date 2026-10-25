@@ -1,6 +1,7 @@
+import PredictiveResearch from "./PredictiveResearch";
 import ActivePortfolio from "./ActivePortfolio";
 import ModelReadiness from "./ModelReadiness";
-import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth,getCohorts,getPortfolioComparison,getActivePortfolio,safeLoad} from "@/lib/api";
+import {getCandidates,getDataAudit,getSignals,getScorecard,getSystemHealth,getCohorts,getPortfolioComparison,getActivePortfolio,getPredictiveReadiness,safeLoad} from "@/lib/api";
 import PortfolioComparison from "./PortfolioComparison";
 import RefreshStatus from "./RefreshStatus";
 import PolicyPerformance from "./PolicyPerformance";
@@ -16,11 +17,11 @@ export default async function Home(){
   safeLoad(getCandidates,[]),safeLoad(getDataAudit,{universe:0,layers:[],missing_price_tickers:[],notes:[]}),
   safeLoad(getSignals,[]),safeLoad(getScorecard,{by_horizon:{}}),
   safeLoad(getSystemHealth,{status:"unavailable"}),safeLoad(getCohorts,[]),
-  safeLoad(getPortfolioComparison,{by_policy:{}}),safeLoad(getActivePortfolio,{status:"unavailable"}),
+  safeLoad(getPortfolioComparison,{by_policy:{}}),safeLoad(getActivePortfolio,{status:"unavailable"}),safeLoad(getPredictiveReadiness,{}),
  ]);
- const [candidateResult,auditResult,signalResult,scoreResult,healthResult,cohortResult,portfolioResult,activeResult]=loaded;
+ const [candidateResult,auditResult,signalResult,scoreResult,healthResult,cohortResult,portfolioResult,activeResult,predictiveResult]=loaded;
  const candidates=candidateResult.data,audit=auditResult.data,signals=signalResult.data,scorecard=scoreResult.data,health=healthResult.data;
- const sections=["Stock screener","Data coverage","Recommendations","Performance","System health","Recommendation groups","Portfolio comparison","Active portfolio"];
+ const sections=["Stock screener","Data coverage","Recommendations","Performance","System health","Recommendation groups","Portfolio comparison","Active portfolio","Predictive research"];
  const errors=loaded.flatMap((result,i)=>result.error?[`${sections[i]}: ${result.error}`]:[]);
  const withSetup=candidates.filter(x=>x.opportunity_score!=null); const avgN=withSetup.length?Math.round(withSetup.reduce((s,x)=>s+(x.setup_sample_size||0),0)/withSetup.length):0;
  return <main>
@@ -37,6 +38,7 @@ export default async function Home(){
   <details className="dashboardDetails"><summary>Data health and coverage<span className="accordionChevron" aria-hidden="true">⌄</span></summary><div className="dashboardDetailsBody">
   <section className="panel"><div className="panelHead"><div><p className="eyebrow">SYSTEM HEALTH</p><h2>{health.status==="success"?"✓ Data update validated":health.status==="error"?"⚠ Data update failed":"Data update status"}</h2></div><span className="badge">{health.status==="success"?"HEALTHY":health.status==="error"?"ERROR":"CHECKING"}</span></div><div className="definitions"><div><b>Latest market data</b><span>{health.latest_price_date||"—"}</span></div><div><b>Latest features</b><span>{health.latest_feature_date||"—"}</span></div><div><b>Last automated run</b><span>{health.last_run?.finished_at||health.last_run?.started_at||"No recorded run yet"}</span></div><div><b>Research sources checked</b><span>{health.research_sources_run?.finished_at||health.research_sources_run?.started_at||"Not refreshed yet"}</span></div><div><b>Fundamentals coverage</b><span>{health.coverage?`${health.coverage.fundamentals} / ${health.coverage.universe}`:"—"}</span></div><div><b>Earnings coverage</b><span>{health.coverage?`${health.coverage.earnings} / ${health.coverage.universe}`:"—"}</span></div><div><b>Predictive model</b><span>{health.model_validation?.validated_horizons?.length>=2?`${health.model_validation.best_stage} · ${health.model_validation.validated_horizons.join("/")}d validated`:health.model_validation?.status==="error"?"Validation error":health.model_validation?.status==="success"?"Validation completed · no model promoted":"Validation pending · heuristic ranking"}</span></div></div>{health.last_run?.error_message&&<p className="muted">Error: {health.last_run.error_message}</p>}{health.research_sources_run?.error_message&&<p className="muted">Research source error: {health.research_sources_run.error_message}</p>}{health.model_validation?.error_message&&<p className="muted">Model validation error: {health.model_validation.error_message}</p>}</section>
   <ModelReadiness data={health.model_readiness}/>
+  <PredictiveResearch data={predictiveResult.error?undefined:predictiveResult.data}/>
   <section className="panel"><p className="eyebrow">ANALYST DATA COLLECTION</p><h2>External recommendations</h2><p className="muted">{health.analyst_consensus_refresh?`${health.analyst_consensus_refresh.metadata?.current_companies??0} / ${health.analyst_consensus_refresh.metadata?.universe??0} usable companies · ${health.analyst_consensus_refresh.metadata?.coverage_status??health.analyst_consensus_refresh.status} · source ${health.analyst_consensus_refresh.metadata?.source??"—"} · finished ${health.analyst_consensus_refresh.finished_at??"—"}`:"Waiting for initial collection"}</p></section>
   {health.daily_schedule?.late_start&&<p className="muted">Daily update started {health.daily_schedule.start_delay_minutes} minutes after its scheduled 08:00 time in Israel. GitHub scheduling does not guarantee an exact start.</p>}
   <FinancialQuality audit={audit}/>

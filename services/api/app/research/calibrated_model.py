@@ -434,8 +434,12 @@ def earnings_asof(events,cid,asof):
 
 def load_guidance_features(db):
     rows=_paged(lambda a,b: db.table("corporate_guidance_events")
-        .select("company_id,event_date,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,consensus_eps_at_event,consensus_revenue_at_event,previous_eps_guidance_low,previous_eps_guidance_high,previous_revenue_guidance_low,previous_revenue_guidance_high,fiscal_year,fiscal_period,captured_at,published_at,eps_method,revenue_method,source")
+        .select("id,company_id,event_date,eps_guidance_low,eps_guidance_high,revenue_guidance_low,revenue_guidance_high,consensus_eps_at_event,consensus_revenue_at_event,previous_eps_guidance_low,previous_eps_guidance_high,previous_revenue_guidance_low,previous_revenue_guidance_high,fiscal_year,fiscal_period,captured_at,published_at,eps_method,revenue_method,source")
         .order("company_id").order("event_date").range(a,b))
+    matched=_paged(lambda a,b:db.table('guidance_consensus_matches')
+        .select('id,guidance_event_id,metric,consensus,observed_at').order('id').range(a,b))
+    by_event={}
+    for item in matched:by_event.setdefault(item['guidance_event_id'],[]).append(item)
     out={}
     for r in rows:
         eps_mid=None
@@ -458,6 +462,16 @@ def load_guidance_features(db):
             "guidance_revenue_change":rev_mid/prevrev-1 if rev_mid is not None and prevrev not in (None,0) else None,
         }
         out.setdefault(r["company_id"],[]).append({"event_date":r["event_date"],"captured_at":r["captured_at"],"published_at":r.get("published_at"),"values":vals,"eps_method":r.get("eps_method"),"source":r.get("source"),"fiscal_year":r.get("fiscal_year"),"fiscal_period":r.get("fiscal_period")})
+        for item in by_event.get(r.get('id'),[]):
+            metric=item['metric'];consensus=_num(item['consensus'])
+            midpoint=eps_mid if metric=='eps' else rev_mid
+            if consensus in (None,0) or midpoint is None:continue
+            observed=max(r['captured_at'],item['observed_at'])
+            values={k:None for k in GUIDANCE_FEATURES}
+            values['guidance_'+metric+'_gap']=(midpoint-consensus)/abs(consensus)
+            out[r['company_id']].append({'event_date':r['event_date'],'captured_at':observed,
+                'published_at':r.get('published_at'),'values':values,'eps_method':r.get('eps_method'),
+                'source':'observed_consensus_match','fiscal_year':r.get('fiscal_year'),'fiscal_period':r.get('fiscal_period')})
     return out
 
 
@@ -579,6 +593,8 @@ def _prepare(db,years=5):
 
     prepared={
         "rows":selected_rows,"all_dates":all_dates,"latest_date":latest_date,"companies":companies,
+        "price_history":{cid:{r["feature_date"]:r.get("close") for r in items} for cid,items in by_company.items()},
+        "spy_id":spy_id,
         "features":feature_dicts,"fundamental_companies":len(fund),
         "earnings_companies":len(earnings),"guidance_companies":len(guidance),"news_companies":len(news),
     }

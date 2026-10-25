@@ -23,6 +23,7 @@ def execution_status(run, now=None):
 def record_history_gate(db, now=None):
     now = now or datetime.now(timezone.utc)
     full_history = not bool(getattr(db, "history_policy", None)) or bool(getattr(db, "archive", None))
+    db.rpc('reconcile_predictive_research_leases').execute()
     # Reconcile abandoned runs without claiming a training slot on this host.
     db.rpc("claim_predictive_validation", {"p_model_version": "", "p_claim": False}).execute()
     report = {"outcome": "ready" if full_history else "deferred_archive_required",

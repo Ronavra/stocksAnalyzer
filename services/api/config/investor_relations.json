@@ -26,6 +26,12 @@
       "https://investor.nvidia.com/financial-info/financial-reports/default.aspx",
       "https://nvidianews.nvidia.com/news"
     ],
-    "documents": []
+    "documents": [
+      {
+        "url": "https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-second-quarter-fiscal-2027",
+        "kind": "official_release",
+        "published_at": "2026-08-26T00:00:00Z"
+      }
+    ]
   }
 }

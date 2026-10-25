@@ -12,6 +12,8 @@ on:
       - 'services/api/app/providers/public_macro_pages.py'
       - 'services/api/app/providers/estimate_consensus.py'
       - 'services/api/scripts/check_source_coverage.py'
+      - 'services/api/config/investor_relations.json'
+      - 'services/api/scripts/refresh_official_documents.py'
       - '.github/workflows/predictive-data-recovery.yml'
 permissions:
   contents: read

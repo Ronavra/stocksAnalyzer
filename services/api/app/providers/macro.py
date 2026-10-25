@@ -15,7 +15,7 @@ SERIES = {
  'CPIAUCSL': ('Consumer price index','index',75),
  'UNRATE': ('Unemployment rate','percent',75),
  'PAYEMS': ('Nonfarm payrolls','thousands of persons',75),
- 'GDPC1': ('Real GDP','billions of chained dollars; source base',150),
+ 'GDPC1': ('Real GDP','billions of chained dollars; source base',240),
  'DTWEXBGS': ('Broad dollar index','index',10),
  'DCOILWTICO': ('WTI crude oil','USD per barrel',10),
 }
@@ -57,13 +57,19 @@ class MacroProvider:
         self.primary_cache={};self.csv_unavailable=False
 
     async def observations(self, client, series, observed_at):
-        if self.csv_unavailable:
-            return await primary_observations(client,series,observed_at,SERIES[series][1],self.primary_cache)
+        # Cache a CSV transport failure only for supported agency substitutes.
+        # GDP/dollar/oil still try their own FRED endpoint, never disappear after DFF fails.
+        supported=series in ('DFF','DGS2','DGS10','CPIAUCSL','UNRATE','PAYEMS')
+        if not (self.csv_unavailable and supported):
+            try:
+                return await self.fred_observations(client,series,observed_at)
+            except (httpx.HTTPError,ValueError):
+                if not self.api_key:self.csv_unavailable=True
         try:
-            return await self.fred_observations(client,series,observed_at)
-        except httpx.HTTPError:
-            if not self.api_key:self.csv_unavailable=True
             return await primary_observations(client,series,observed_at,SERIES[series][1],self.primary_cache)
+        except (httpx.HTTPError,ValueError):
+            from .public_macro_pages import page_observations
+            return await page_observations(client,series,observed_at,SERIES[series][1])
 
     async def fred_observations(self, client, series, observed_at):
         end=observed_at[:10]

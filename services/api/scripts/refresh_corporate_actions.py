@@ -1,5 +1,6 @@
 """Collect paginated dividend/split calendars without per-issuer quota bursts."""
 import asyncio
+import os
 from datetime import date,timedelta
 from pathlib import Path
 import sys
@@ -13,7 +14,29 @@ from app.research.evidence import corporate_actions
 from app.research.collection import now,start,finish,check,save_events
 
 
-async def refresh(db,provider,delay=10):
+def free_action_coverage(db):
+    from app.research.prospective_metrics import paged
+    run=start(db,'corporate_actions_refresh')
+    report={'errors':[],'coverage_status':'partial','source_policy':'free-observed-actions-v1',
+        'paid_calendar_endpoints_called':False,'upcoming_split_calendar_available':False,
+        'mergers_and_spinoffs_collected':False}
+    try:
+        since=(date.today()-timedelta(days=2)).isoformat()+'T00:00:00Z'
+        checks=paged(db.table('research_collection_checks').select('id,company_id').eq('family','actions')
+            .eq('source','yahoo_actions').eq('status','success').gte('checked_at',since).order('id'))
+        dividends=paged(db.table('research_evidence_events').select('id,company_id').eq('source','yahoo_calendar')
+            .eq('kind','dividend').gte('event_date',date.today().isoformat()).gte('observed_at',since).order('id'))
+        report.update(historical_action_companies=len({r['company_id'] for r in checks}),
+            projected_dividend_companies=len({r['company_id'] for r in dividends}))
+        if not checks and not dividends:report['unavailable']=True
+        check(db,'actions','free_observed_actions','partial' if checks or dividends else 'error',**report)
+        return finish(db,run,report)
+    except Exception as exc:
+        report['errors'].append({'type':type(exc).__name__});finish(db,run,report);raise
+
+
+async def refresh(db,provider=None,delay=10):
+    if provider is None:return free_action_coverage(db)
     run=start(db,'corporate_actions_refresh')
     report={'checked':0,'events':0,'errors':[],'dividends_and_splits_only':True,'calendar_pages':0}
     try:
@@ -55,4 +78,5 @@ async def refresh(db,provider,delay=10):
 
 
 if __name__=='__main__':
-    if asyncio.run(refresh(get_supabase(),TwelveDataProvider()))!='success':sys.exit(1)
+    provider=TwelveDataProvider() if os.getenv('ENABLE_TWELVE_ACTIONS_CALENDAR','false').lower()=='true' else None
+    if asyncio.run(refresh(get_supabase(),provider))!='success':sys.exit(1)

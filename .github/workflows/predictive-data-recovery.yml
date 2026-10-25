@@ -1,0 +1,84 @@
+name: Predictive Data Recovery
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'services/api/app/providers/public_macro_pages.py'
+      - 'services/api/app/providers/macro.py'
+      - '.github/workflows/predictive-data-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/app/providers/public_macro_pages.py'
+      - 'services/api/app/providers/estimate_consensus.py'
+      - 'services/api/scripts/check_source_coverage.py'
+      - '.github/workflows/predictive-data-recovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: stocks-analyzer-predictive-data-${{ github.event_name }}
+  cancel-in-progress: false
+jobs:
+  public-contracts:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Observe public endpoint contracts without account credentials
+        run: python scripts/probe_predictive_sources.py
+  recover:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Recover macro series and the official economic calendar
+        id: macro
+        continue-on-error: true
+        run: python scripts/refresh_macro_sources.py
+      - name: Archive official releases through alternate issuer pages
+        id: documents
+        continue-on-error: true
+        run: python scripts/refresh_official_documents.py --limit 100
+      - name: Collect first-observed fiscal estimates with explicit accounting metadata
+        id: estimates
+        continue-on-error: true
+        run: python scripts/refresh_estimate_snapshots.py
+      - name: Audit the free corporate action sources
+        id: actions
+        continue-on-error: true
+        run: python scripts/refresh_corporate_actions.py
+      - name: Persist complete source coverage through the compact audit snapshot
+        if: ${{ !cancelled() }}
+        run: python scripts/check_source_coverage.py
+      - name: Report independent source failures
+        if: ${{ !cancelled() }}
+        env:
+          SOURCE_FAILURES: ${{ steps.macro.outcome == 'failure' || steps.documents.outcome == 'failure' || steps.estimates.outcome == 'failure' || steps.actions.outcome == 'failure' }}
+        run: |
+          if [ "$SOURCE_FAILURES" = "true" ]; then
+            echo 'Some source recoveries failed; successful captures are retained. Inspect per-source reports.'
+            exit 1
+          fi

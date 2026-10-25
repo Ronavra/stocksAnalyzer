@@ -31,7 +31,8 @@ def refresh(db, provider, delay=1.1, limit=None):
     report = {"source": provider.source, "universe": len(companies), "requested": 0,
               "reused": 0, "stored": 0, "empty_tickers": [], "errors": [],
               "current_companies": len(fresh & {c['id'] for c in companies}),
-              "archive_starts_at_actual_observation": True, "eps_basis": "unknown"}
+              "archive_starts_at_actual_observation": True, "eps_basis_policy": "explicit_provider_metadata_only",
+              "basis_verified_rows":0,"basis_unknown_rows":0,"inconsistent_rows":0}
     finalized = False
     try:
         failures = 0
@@ -53,6 +54,9 @@ def refresh(db, provider, delay=1.1, limit=None):
                 # DB failures abort; they are not misreported as missing estimates.
                 db.table("estimate_snapshots").upsert(rows, on_conflict=CONFLICT, ignore_duplicates=True, returning="minimal").execute()
                 report["stored"] += len(rows)
+                report['basis_verified_rows']+=sum(r['eps_basis']!='unknown' for r in rows)
+                report['basis_unknown_rows']+=sum(r['eps_basis']=='unknown' for r in rows)
+                report['inconsistent_rows']+=sum(any('outside_interval' in i for i in r['normalization']['issues']) for r in rows)
                 report["current_companies"] += 1
                 failures = 0
             else:

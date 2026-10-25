@@ -62,7 +62,7 @@ def discovered_links(url,html,hosts):
         target=urljoin(url,href).split('#')[0]
         if not allowed_url(target,hosts): continue
         label=re.sub(r'\s+',' ',label).strip()
-        kind='transcript' if re.search(r'\btranscript\b',label,re.I) else 'presentation' if re.search(r'presentation|CFO commentary|financial summary',label,re.I) else 'official_release' if re.search(r'press release|earnings release',label,re.I) else None
+        kind='transcript' if re.search(r'\btranscript\b',label,re.I) else 'presentation' if re.search(r'presentation|CFO commentary|financial summary',label,re.I) else 'official_release' if re.search(r'press release|earnings release|financial results',label,re.I) else None
         if kind and not any(x['url']==target for x in rows): rows.append({'url':target,'kind':kind})
     return rows[:12]
 

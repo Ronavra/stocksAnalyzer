@@ -19,7 +19,7 @@ from app.research.collection import now,start,finish,check,save_documents,save_e
 
 async def refresh(db,provider,limit=100):
     run=start(db,'official_documents_refresh')
-    report={'sec_filings_checked':0,'documents':0,'ir_companies':0,'errors':[],'bounded_batch':True}
+    report={'sec_filings_checked':0,'documents':0,'ir_companies':0,'errors':[],'warnings':[],'bounded_batch':True}
     try:
         companies={x['id']:x for x in db.table('companies').select('id,ticker').eq('is_sp500',True).eq('active',True).execute().data or []}
         events=db.table('company_disclosures').select('*').in_('form',['8-K','8-K/A','6-K','6-K/A']).or_('documents_collected_at.is.null,document_status.eq.error').gte('filing_date',(datetime.now(timezone.utc)-timedelta(days=90)).date().isoformat()).order('published_at',desc=True).limit(max(1,min(limit,500))).execute().data or []
@@ -43,14 +43,14 @@ async def refresh(db,provider,limit=100):
         by_ticker={x['ticker']:x for x in companies.values()}
         for ticker,entry in registry().items():
             if ticker not in by_ticker:continue
-            c=by_ticker[ticker];targets=list(entry.get('documents',[]));errors=[]
+            c=by_ticker[ticker];targets=list(entry.get('documents',[]));errors=[];index_errors=[];successful_indexes=0
             async with httpx.AsyncClient(timeout=60,headers={'User-Agent':provider.user_agent}) as client:
                 for url in entry.get('pages',[]):
                     try:
                         final,raw,ctype=await download(client,url,entry['hosts'])
                         html=document_text(raw,ctype,final)
-                        targets.extend(discovered_links(final,html,entry['hosts']))
-                    except Exception as exc: errors.append({'type':type(exc).__name__,'stage':'index'})
+                        targets.extend(discovered_links(final,html,entry['hosts']));successful_indexes+=1
+                    except Exception as exc: index_errors.append({'type':type(exc).__name__,'stage':'index'})
                 seen=set();count=0;call_count=0
                 for target in targets[:15]:
                     if target['url'] in seen:continue
@@ -62,8 +62,11 @@ async def refresh(db,provider,limit=100):
                     except Exception as exc: errors.append({'type':type(exc).__name__,'stage':'document'});continue
                     save_documents(db,[row]);count+=1
                     call_count+=row['kind'] in ('transcript','presentation')
+                if successful_indexes and count:
+                    report['warnings'].extend({'ticker':ticker,**e,'recovered_by':'alternate_issuer_page'} for e in index_errors)
+                else:errors.extend(index_errors)
                 report['documents']+=count;report['ir_companies']+=1
-                check(db,'calls','company_ir','partial' if errors else 'success',c['id'],documents=count,call_documents=call_count,errors=errors,registry_limited=True)
+                check(db,'calls','company_ir','partial' if errors else 'success',c['id'],documents=count,call_documents=call_count,errors=errors,registry_limited=True,index_warnings=index_errors if successful_indexes and count else [])
                 report['errors'].extend({'ticker':ticker,**e} for e in errors)
         report['ir_registry_companies']=len(registry());report['unregistered_ir_companies']=len(companies)-len(set(registry())&set(by_ticker))
         return finish(db,run,report)

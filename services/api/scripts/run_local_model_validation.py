@@ -27,6 +27,7 @@ def due(previous, now):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument("--if-due",action="store_true");args=parser.parse_args()
     db=get_supabase();now=datetime.now(timezone.utc)
+    db.rpc("reconcile_predictive_research_leases").execute()
     if args.if_due:
         previous=db.table("pipeline_runs").select("status,finished_at").eq("pipeline","local_model_validation").order("started_at",desc=True).limit(5).execute().data or []
         if not due(previous,now):
@@ -41,8 +42,9 @@ def main():
             raise RuntimeError("LOCAL_MARKET_ARCHIVE must identify the verified full archive on this computer")
         require_full_history(db)
         db.archive.fingerprint()
-        for name in ("validate_daily_cycle.py","repair_financial_coverage.py","ablation_predictive_model.py",
-                     "validate_weekly_ranker.py","compare_portfolio_risk.py"):
+        subprocess.run([sys.executable,str(API_DIR/"scripts"/"refresh_research_sources.py"),"--sec-only","--max-age-hours","24"],cwd=API_DIR,check=True,timeout=max(1,deadline-time.monotonic()))
+        for name in ("validate_daily_cycle.py","repair_financial_coverage.py","match_guidance_consensus.py","ablation_predictive_model.py",
+                     "validate_twenty_day_model.py","validate_weekly_ranker.py","compare_portfolio_risk.py"):
             subprocess.run([sys.executable,str(API_DIR/"scripts"/name)],cwd=API_DIR,check=True,
                            timeout=max(1,deadline-time.monotonic()))
         db.table("pipeline_runs").update({"status":"success","finished_at":datetime.now(timezone.utc).isoformat(),

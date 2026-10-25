@@ -69,7 +69,7 @@ def pair_correlation(a, b, until):
 
 
 def advance(previous, candidates, prices, asof, now=None, calendars=None, rejections=None,
-            ranking_error=None, benchmark_id=None, fixed_horizon=None):
+            ranking_error=None, benchmark_id=None, fixed_horizon=None, cost_per_side=None, review_requested=None):
     """Daily marks/fills, weekly rotation and 20-session thesis reviews.
 
     Missing research causes a review alert, never an automatic sale. Actual
@@ -77,6 +77,9 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
     """
     if fixed_horizon not in (None,5,10,20):
         raise ValueError('Unsupported experimental horizon')
+    cost=CONFIG['one_way_cost'] if cost_per_side is None else float(cost_per_side)
+    if not isfinite(cost) or not 0<=cost<.1:raise ValueError('Invalid paper execution cost')
+    config={**CONFIG,'one_way_cost':cost}
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(NY).date().isoformat()
     if asof > today or session_close(date.fromisoformat(asof)) > now:
@@ -120,14 +123,14 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
                     pending.append(order)
                 continue
             notional = p['shares']*quote
-            fee = notional*CONFIG['one_way_cost']
+            fee = notional*config['one_way_cost']
             state['cash'] += notional-fee
             del positions[cid]
             state['completed_trades'] = state.get('completed_trades',0)+1
         else:
             if cid in positions:
                 continue
-            if len(positions) >= CONFIG['max_positions']:
+            if len(positions) >= config['max_positions']:
                 state['alerts'].append(f'{order["ticker"]}: entry cancelled; no free position')
                 continue
             # Recheck position/sector limits at the execution close, including
@@ -137,15 +140,15 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
                 continue
             nav = state['cash'] + sum(p['shares']*maps[p['company_id']][execution] for p in positions.values())
             sector_value = sum(p['shares']*maps[p['company_id']][execution] for p in positions.values() if p['sector']==order['sector'])
-            budget = min(order['budget'], state['cash'], nav*CONFIG['entry_weight'],
-                         max(0., nav*CONFIG['sector_weight']-sector_value))
+            budget = min(order['budget'], state['cash'], nav*config['entry_weight'],
+                         max(0., nav*config['sector_weight']-sector_value))
             if budget <= 1e-6:
                 continue
-            notional = budget/(1+CONFIG['one_way_cost']); fee = budget-notional
+            notional = budget/(1+config['one_way_cost']); fee = budget-notional
             state['cash'] -= budget
             positions[cid] = dict(company_id=cid, ticker=order['ticker'], sector=order['sector'],
                                   shares=notional/quote, entry_price=quote, entry_date=execution,
-                                  review_due=sessions_after(execution, CONFIG['holding_sessions']),
+                                  review_due=sessions_after(execution, config['holding_sessions']),
                                   entry_score=order['score'], score=order['score'])
         state['costs'] += fee
         state['traded_notional'] += notional
@@ -157,7 +160,7 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
         state['metric_history_complete'] = False
         state['alerts'].append('Current marks missing: '+', '.join(missing)+'; new decisions paused')
     equity = None if missing else state['cash']+sum(p['shares']*marks[cid] for cid,p in positions.items())
-    state.update(as_of_date=asof, decision_at=now.isoformat(), equity=equity, config=dict(CONFIG),
+    state.update(as_of_date=asof, decision_at=now.isoformat(), equity=equity, config=dict(config),
                  validated=False, ranking_error=ranking_error)
     if equity is not None:
         state['peak_equity'] = max(state['peak_equity'], equity)
@@ -173,12 +176,12 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
         p.update(current_price=marks[cid], price_date=asof if marks[cid] else None,
                  market_value=p['shares']*marks[cid] if marks[cid] else None,
                  weight=p['shares']*marks[cid]/equity if marks[cid] and equity else None)
-        if p['weight'] is not None and p['weight'] > CONFIG['entry_weight']+.005:
+        if p['weight'] is not None and p['weight'] > config['entry_weight']+.005:
             state['alerts'].append(f'{p["ticker"]}: position weight above entry target; review concentration')
     candidate_map = {p['company_id']:p for p in candidates}
     next_execution = sessions_after(max(asof,today))
     week = (date.fromisoformat(today)-timedelta(days=date.fromisoformat(today).weekday())).isoformat()
-    weekly = state['last_review_week'] != week
+    weekly = state['last_review_week'] != week if review_requested is None else bool(review_requested)
     unresolved = any(o['execute_on'] <= asof for o in pending)
     can_decide = equity is not None and not unresolved and not ranking_error
     selling = {o['company_id'] for o in pending if o['side']=='sell' and o['execute_on'] <= next_execution}
@@ -208,7 +211,7 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
                 sell(p, rejection)
             elif candidate:
                 if not fixed_horizon and p['review_due'] <= asof:
-                    p['review_due'] = sessions_after(asof, CONFIG['holding_sessions'])
+                    p['review_due'] = sessions_after(asof, config['holding_sessions'])
                     state['actions'].append(dict(ticker=p['ticker'], action='hold', reason='thesis_renewed', review_due=p['review_due']))
             else:
                 state['alerts'].append(f'{p["ticker"]}: research eligibility needs review ({rejection or ranking_error or "not currently eligible"})')
@@ -224,31 +227,31 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
         for cid,p in selected.items():
             sector_values[p['sector']] += p.get('market_value', p.get('budget',0.)) or 0.
         committed = sum(o.get('budget',0.) for o in state['orders'] if o['side']=='buy')
-        spendable = max(0.,state['cash']-committed)+sum(positions[cid]['market_value']*(1-CONFIG['one_way_cost']) for cid in selling if positions[cid].get('market_value'))
+        spendable = max(0.,state['cash']-committed)+sum(positions[cid]['market_value']*(1-config['one_way_cost']) for cid in selling if positions[cid].get('market_value'))
         for c in sorted(candidates,key=lambda p:(-p['score'],str(p['company_id']))):
             cid = c['company_id']; sector = c.get('sector') or 'Unknown'
             if cid in selected or cid in positions or sector == 'Unknown':
                 continue
             weak = None
-            if len(selected) >= CONFIG['max_positions']:
+            if len(selected) >= config['max_positions']:
                 eligible = [p for p in selected.values() if p['company_id'] in positions and p.get('score') is not None]
                 weak = min(eligible,key=lambda p:(p['score'],str(p['company_id'])),default=None)
-                if fixed_horizon or replacements >= CONFIG['max_weekly_replacements'] or not weak or c['score'] < weak['score']+CONFIG['replacement_margin']:
+                if fixed_horizon or replacements >= config['max_weekly_replacements'] or not weak or c['score'] < weak['score']+config['replacement_margin']:
                     continue
             other_ids = set(selected)-({weak['company_id']} if weak else set())
             correlations = [pair_correlation(maps[cid],maps[other],asof) for other in other_ids]
-            if any(r is None or r >= CONFIG['max_correlation'] for r in correlations):
+            if any(r is None or r >= config['max_correlation'] for r in correlations):
                 continue
             removed = weak.get('market_value',0.) if weak else 0.
             sector_removed = removed if weak and weak['sector']==sector else 0.
-            budget = min(equity*CONFIG['entry_weight'], max(0.,equity*CONFIG['sector_weight']-sector_values[sector]+sector_removed), spendable+removed*(1-CONFIG['one_way_cost']))
+            budget = min(equity*config['entry_weight'], max(0.,equity*config['sector_weight']-sector_values[sector]+sector_removed), spendable+removed*(1-config['one_way_cost']))
             if budget <= equity*.001:
                 continue
             if weak:
                 sell(weak,'stronger_candidate')
                 del selected[weak['company_id']]
                 sector_values[weak['sector']] -= removed
-                spendable += removed*(1-CONFIG['one_way_cost'])
+                spendable += removed*(1-config['one_way_cost'])
                 replacements += 1
             order = dict(side='buy', company_id=cid, ticker=c['ticker'], sector=sector, score=c['score'],
                          budget=budget, execute_on=next_execution, reason='stronger_candidate' if weak else 'free_slot',
@@ -271,7 +274,7 @@ def advance(previous, candidates, prices, asof, now=None, calendars=None, reject
     for p in state['positions']:
         sectors[p['sector']] += p['weight'] or 0.
     for sector,weight in sectors.items():
-        if weight > CONFIG['sector_weight']+.005:
+        if weight > config['sector_weight']+.005:
             state['alerts'].append(f'{sector}: sector weight exceeds 30%; review concentration')
     state['sector_weights'] = dict(sectors)
     if not state.get('metric_history_complete',True):

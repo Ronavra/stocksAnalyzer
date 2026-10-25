@@ -42,6 +42,12 @@ jobs:
           name: model-history-readiness
           path: services/api/model_history_gate.json
           if-no-files-found: ignore
+      - name: Record twenty-session research readiness
+        run: python scripts/validate_twenty_day_model.py --readiness-only
       - name: Validate feature groups out of sample
         if: steps.history_gate.outputs.run == 'true'
         run: python scripts/ablation_predictive_model.py
+
+      - name: Validate twenty-session funded account and feature additions
+        if: steps.history_gate.outputs.run == 'true'
+        run: python scripts/validate_twenty_day_model.py

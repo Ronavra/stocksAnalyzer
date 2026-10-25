@@ -189,6 +189,10 @@ def scorecard():
         }
     }
 
+@router.get("/predictive-readiness")
+def predictive_readiness():
+    return get_supabase().rpc("research_predictive_readiness").execute().data
+
 @router.get("/active-portfolio")
 def active_portfolio():
     from ..research.active_portfolio import load_active_portfolio

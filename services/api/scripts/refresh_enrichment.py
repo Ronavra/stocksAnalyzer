@@ -34,6 +34,10 @@ def main():
         # an optional provider failure must not erase other collected data.
         result=subprocess.run([sys.executable,str(API_DIR/"scripts"/script),*args])
         results[source]={"status":"success" if result.returncode==0 else "error","exit_code":result.returncode}
+    matching=subprocess.run([sys.executable,str(API_DIR/'scripts'/'match_guidance_consensus.py')])
+    results['guidance_consensus_matching']={'status':'success' if matching.returncode==0 else 'error','exit_code':matching.returncode}
+    readiness=subprocess.run([sys.executable,str(API_DIR/'scripts'/'validate_twenty_day_model.py'),'--readiness-only'])
+    results['twenty_day_readiness']={'status':'success' if readiness.returncode==0 else 'error','exit_code':readiness.returncode}
     audit=subprocess.run([sys.executable,str(API_DIR/"scripts"/"check_source_coverage.py")])
     results["coverage_audit"]={"status":"success" if audit.returncode==0 else "error","exit_code":audit.returncode}
     status="success" if all(r["status"]=="success" for r in results.values()) else "error"

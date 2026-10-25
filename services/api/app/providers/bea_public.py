@@ -52,18 +52,18 @@ def gdp_workbook(raw,observed_at):
     # row 8 has the line number, GDP title and BEA series code A191RX.
     # The published values are millions, while GDPC1 is in billions.
     text=' '.join(str(v) for row in rows[:8] for v in row.values() if v)
-    base=re.search(r'(millions|billions)\\s+of\\s+chained\\s*\\(?\\s*(\\d{4})\\s*\\)?\\s+dollars',text,re.I)
+    base=re.search(r'(millions|billions)\s+of\s+chained\s*\(?\s*(\d{4})\s*\)?\s+dollars',text,re.I)
     if not base:raise ValueError('BEA real GDP units not explicit')
     scale=.001 if base[1].lower()=='millions' else 1.
     units=f'billions of chained {base[2]} dollars'
-    headers=next((row for row in rows[:12] if sum(bool(re.fullmatch(r'(?:19|20)\\d{2}Q[1-4]',str(v or '').strip())) for v in row.values())>=4),None)
+    headers=next((row for row in rows[:12] if sum(bool(re.fullmatch(r'(?:19|20)\d{2}Q[1-4]',str(v or '').strip())) for v in row.values())>=4),None)
     if headers is None:raise ValueError('BEA GDP quarterly period header missing')
     values=next((row for row in rows if str(row.get(3) or '').strip()=='A191RX'
                  and 'gross domestic product' in str(row.get(2) or '').lower()),None)
     if values is None:raise ValueError('BEA real GDP A191RX row missing')
     result=[]
     for col,value in headers.items():
-        m=re.fullmatch(r'((?:19|20)\\d{2})Q([1-4])',str(value or '').strip())
+        m=re.fullmatch(r'((?:19|20)\d{2})Q([1-4])',str(value or '').strip())
         if not m:continue
         day=f'{int(m[1]):04d}-{1+3*(int(m[2])-1):02d}-01'
         raw=values.get(col)

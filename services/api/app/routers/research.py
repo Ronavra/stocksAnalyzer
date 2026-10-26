@@ -54,9 +54,39 @@ def candidates():
     result.sort(key=lambda x:x.get("research_rank_score") if x.get("research_rank_score") is not None else -999,reverse=True)
     return result
 
+def _cached_data_audit(db):
+    """Serve a clearly labeled last successful coverage snapshot on timeout."""
+    rows=(db.table("pipeline_runs").select("metadata,finished_at,status")
+          .eq("pipeline","source_coverage_audit").eq("status","success")
+          .order("started_at",desc=True).limit(1).execute().data or [])
+    if not rows or not isinstance((rows[0].get("metadata") or {}).get("families"),list):
+        raise HTTPException(status_code=503,detail="Data audit timed out; no cached coverage is available")
+    row=rows[0]
+    families=row["metadata"]["families"]
+    total=max((int(f.get("total") or 0) for f in families),default=0)
+    layers=[{"key":f.get("key"),"label":f.get("label"),"companies":f.get("covered_companies"),
+             "total":f.get("total"),"coverage_pct":round(100*(f.get("covered_companies") or 0)/f["total"],1)
+               if f.get("total") else None,"status":"cached"} for f in families]
+    return {"universe":total,"layers":layers,"missing_price_tickers":[],
+            "notes":["Live audit exceeded database statement timeout.",
+                     "Last successful coverage snapshot shown; company-level gaps unavailable.",
+                     "Cached coverage does not prove freshness or predictive value."],
+            "source_families":families,"source_checks":[],"all_major_data_complete":False,
+            "company_gaps":[],"financial_quality":None,"financial_checked_at":None,
+            "financial_gaps":[],"data_status":"cached_after_timeout",
+            "snapshot_finished_at":row.get("finished_at")}
+
+
 @router.get("/data-audit")
 def data_audit():
-    snapshot=get_supabase().rpc("research_dashboard_data_audit").execute().data or {}
+    from postgrest.exceptions import APIError
+    db=get_supabase()
+    try:
+        snapshot=db.rpc("research_dashboard_data_audit").execute().data or {}
+    except APIError as exc:
+        if str(getattr(exc,"code",None)) != "57014":
+            raise
+        return _cached_data_audit(db)
     d=snapshot.get("audit") or {}; total=d.get("universe",0)
     counts=snapshot.get("counts") or {}
     def item(key,label,observed=False):

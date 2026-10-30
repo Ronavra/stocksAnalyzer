@@ -91,34 +91,60 @@ def update(db,today=None):
                      entry_observed_at=row.get('captured_at') or datetime.now(timezone.utc).isoformat())
             ).eq('pilot_id',PILOT_ID).eq('company_id',p['company_id']).is_('entry_open','null').execute()
         db.table('research_pilots').update({'status':'simulated'}).eq('pilot_id',PILOT_ID).execute()
-    prices=rows_on(db,today)
-    close_prices={t:positive(r.get('close')) for t,r in prices.items() if r}
-    if len(close_prices)==6:
-        # Snapshot-once: later provider corrections must not rewrite historical pilot P&L.
-        db.table('research_pilot_marks').upsert(
-            [dict(pilot_id=PILOT_ID,price_date=today,ticker=t,close=price)
-             for t,price in close_prices.items()],
-            on_conflict='pilot_id,price_date,ticker',ignore_duplicates=True).execute()
+    # Backfill only completed, common market sessions. Never forward-fill a
+    # missing ticker and never compute mixed-date portfolio returns.
+    companies=(db.table('companies').select('id,ticker')
+               .in_('ticker',list(EXPECTED+(BENCHMARK,))).execute().data or [])
+    tickers={c['id']:c['ticker'] for c in companies}
+    if set(tickers.values())!=set(EXPECTED+(BENCHMARK,)):
+        raise RuntimeError('Benchmark or pilot ticker is missing')
+    historical=(db.table('price_history').select('company_id,price_date,close,captured_at')
+                .in_('company_id',list(tickers)).gte('price_date',TRADE_DATE)
+                .lte('price_date',today).order('price_date').execute().data or [])
+    by_day={}
+    for row in historical:
+        ticker=tickers.get(row['company_id'])
+        close=positive(row.get('close'))
+        if ticker and close:
+            by_day.setdefault(row['price_date'],{}).setdefault(ticker,close)
+    complete={day:values for day,values in by_day.items()
+              if len(values)==len(EXPECTED)+1}
+    for day,values in sorted(complete.items()):
+        db.table('research_pilot_marks').upsert([
+            dict(pilot_id=PILOT_ID,price_date=day,ticker=t,close=values[t])
+            for t in EXPECTED+(BENCHMARK,)
+        ],on_conflict='pilot_id,price_date,ticker',ignore_duplicates=True).execute()
+    marks=(db.table('research_pilot_marks').select('ticker,close,price_date')
+           .eq('pilot_id',PILOT_ID).gte('price_date',TRADE_DATE)
+           .order('price_date',desc=True).execute().data or [])
+    saved_days={}
+    for row in marks:
+        saved_days.setdefault(row['price_date'],{})[row['ticker']]=positive(row['close'])
+    full_days={day:values for day,values in saved_days.items()
+               if len(values)==6 and all(values.get(t) for t in EXPECTED+(BENCHMARK,))}
+    if not full_days:
+        raise RuntimeError('Pilot data incomplete: no common close for all five picks and SPY')
+    asof=max(full_days)
+    latest=full_days[asof]
     positions=(db.table('research_pilot_positions').select('ticker,entry_open,entry_shares')
                .eq('pilot_id',PILOT_ID).execute().data or [])
-    marks=(db.table('research_pilot_marks').select('ticker,close,price_date')
-           .eq('pilot_id',PILOT_ID).order('price_date',desc=True).execute().data or [])
-    latest={}
-    for row in marks:
-        latest.setdefault(row['ticker'],row)
-    if len(latest)<6:return dict(status='simulated',reason='waiting_for_complete_daily_close',trade_date=TRADE_DATE)
+    if len(positions)!=5 or any(not positive(p.get('entry_open')) or
+                                not positive(p.get('entry_shares')) for p in positions):
+        raise RuntimeError('Pilot entries are incomplete')
     benchmark_entry=positive(entry[BENCHMARK]['open'])
-    spy=latest[BENCHMARK]
     totals=[dict(ticker=p['ticker'],entry_open=p['entry_open'],shares=p['entry_shares'],
-                 latest_close=latest[p['ticker']]['close'],
-                 pnl_usd=float(p['entry_shares'])*(float(latest[p['ticker']]['close'])-float(p['entry_open'])))
+                 latest_close=latest[p['ticker']],
+                 pnl_usd=float(p['entry_shares'])*(latest[p['ticker']]-float(p['entry_open'])))
             for p in positions]
-    return dict(status='simulated',trade_date=TRADE_DATE,asof=spy['price_date'],
+    return dict(status='simulated',trade_date=TRADE_DATE,asof=asof,
+                observed_complete_sessions=len(full_days),
+                data_lag=asof<max(by_day) if by_day else False,
+                missing_latest_tickers=sorted(set(EXPECTED+(BENCHMARK,))-
+                  set(by_day.get(max(by_day),{}))) if by_day else list(EXPECTED+(BENCHMARK,)),
                 assumed_gross_pnl_usd=sum(p['pnl_usd'] for p in totals),
-                benchmark_gross_pnl_usd=5000*(float(spy['close'])/benchmark_entry-1),
-                positions=totals,limitations=['Assumed open, not your actual broker fills',
+                benchmark_gross_pnl_usd=5000*(latest[BENCHMARK]/benchmark_entry-1),
+                positions=totals,limitations=['Assumed open, not actual broker fills',
                 'Commissions, bid/ask spread, FX, dividends and taxes excluded'])
-
 
 if __name__=='__main__':
     print(json.dumps(update(get_supabase()),indent=2))

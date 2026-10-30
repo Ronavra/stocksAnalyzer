@@ -17,6 +17,28 @@ from app.providers.corporate_calendar import projected_dividends
 from app.research.collection import save_events
 
 
+def store_calendar_snapshot(db, snapshot, retries=3):
+    """Retry transient gateway failures without duplicating an ambiguous write."""
+    from postgrest.exceptions import APIError
+    import random
+    for attempt in range(retries):
+        try:
+            db.table('earnings_calendar_snapshots').insert(snapshot).execute()
+            return
+        except APIError as exc:
+            code=str(getattr(exc,'code',''))
+            if code not in ('502','503','504','520','522','524') or attempt==retries-1:
+                raise
+            # A gateway can fail *after* Postgres committed. Check the
+            # exact source/timestamp before retrying this insert.
+            existing=(db.table('earnings_calendar_snapshots')
+                      .select('id').eq('company_id',snapshot['company_id'])
+                      .eq('source',snapshot['source']).eq('observed_at',snapshot['observed_at'])
+                      .limit(1).execute().data or [])
+            if existing:return
+            time.sleep(min(8,2**attempt)+random.random())
+
+
 def fresh_company_ids(previous, now):
     # A recent pre-close fetch cannot cover a newly completed market session.
     close = latest_session_close(now).astimezone(timezone.utc)

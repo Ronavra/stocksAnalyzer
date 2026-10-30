@@ -1,6 +1,11 @@
 name: Assumed-Open Pilot Tracking
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/scripts/track_real_money_pilot.py'
+      - '.github/workflows/assumed-open-pilot.yml'
   schedule:
     # Wednesday-Saturday UTC, after prior US trading day's closing data is expected.
     - cron: '30 2 * * 3-6'

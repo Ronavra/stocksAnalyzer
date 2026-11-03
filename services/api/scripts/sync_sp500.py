@@ -26,6 +26,18 @@ SYMBOL_CHANGES = [{"old":"PSKY","new":"SKYD","cik":"2041610","effective":"2026-1
     "source_url":"https://www.sec.gov/Archives/edgar/data/2041610/000110465926113913/tm2626659d7_8k.htm"}]
 
 
+# Confirmed completed acquisition, NOT a guessed absence of market data.
+# Kenvue stopped NYSE trading at the 2026-11-02 open. The upstream
+# S&P constituent CSV can lag the official issuer/SEC corporate event.
+CONFIRMED_CEASED_TRADING = {
+    "KVUE": {
+        "cik": "1944048",
+        "effective": "2026-11-02",
+        "source_url": "https://www.sec.gov/Archives/edgar/data/55785/000110465926120990/tm2628636d1_8k.htm",
+    },
+}
+
+
 def normalize_ticker(ticker):
     return str(ticker or "").strip().upper().replace(".", "-")
 
@@ -60,6 +72,20 @@ def sync(db, csv_text, observed_at):
     today = observed_at.date().isoformat()
     current = db.table("companies").select("id,ticker,name,sector,industry,cik,is_sp500,active").eq("is_sp500", True).execute().data or []
     constituents = parse_constituents(csv_text, [c["ticker"] for c in current])
+    # Corporate-action events outrank a lagging scraped membership feed.
+    # Fail closed on an unexpected issuer identity before modifying any rows.
+    excluded = set()
+    for ticker, event in CONFIRMED_CEASED_TRADING.items():
+        if today < event["effective"]:
+            continue
+        found = constituents.get(ticker)
+        old = next((c for c in current if c["ticker"] == ticker), None)
+        for item in (found, old):
+            if item and str(item.get("cik") or "").lstrip("0") != event["cik"]:
+                raise ValueError(f"Confirmed cessation issuer CIK mismatch: {ticker}")
+        if found:
+            constituents.pop(ticker)
+        excluded.add(ticker)
     current_by_ticker={c["ticker"]:c for c in current}
     for change in SYMBOL_CHANGES:
         old=current_by_ticker.get(change["old"])
@@ -106,7 +132,10 @@ def sync(db, csv_text, observed_at):
     for company in current:
         if company["id"] not in active_ids:
             patch={"is_sp500":False}
-            # Confirmed cash acquisition, not an assumption about missing bars.
+            # Preserve the issuer and its past price/decision history.
+            # Stop asking for nonexistent closes after a documented delisting.
+            if company["ticker"] in excluded:
+                patch["active"]=False
             if company["ticker"]=="WBD" and str(company.get("cik") or "").lstrip("0")=="1437107" and today>="2026-10-06":
                 patch["active"]=False
             db.table("companies").update(patch).eq("id", company["id"]).execute()

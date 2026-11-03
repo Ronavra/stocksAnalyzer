@@ -2,6 +2,11 @@ name: Daily Update Monitor
 
 on:
   workflow_dispatch:
+  # Recheck the health indicator when a delayed Daily Market Research run
+  # finishes. Keep the noon failure as an honest missed-deadline signal.
+  workflow_run:
+    workflows: ["Daily Market Research"]
+    types: [completed]
   schedule:
     - cron: "17 12 * * *"
       timezone: "Asia/Jerusalem"

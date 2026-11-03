@@ -146,3 +146,53 @@ def test_removed_member_is_retained_and_confirmed_delisting_is_inactive():
     assert db.companies["WBD"]["is_sp500"] is False
     assert db.companies["WBD"]["active"] is False
     assert db.companies["WBD"]["id"]==500
+
+
+def test_issuer_confirmed_kenvue_cease_trading_overrides_lagged_source():
+    db=Db()
+    old=db.companies.pop("T499")
+    old.update(ticker="KVUE",cik="1944048",active=True)
+    db.companies["KVUE"]=old
+    tickers=[f"T{i:03}" for i in range(499)]+["KVUE"]
+    # Source carries CIK; keep all normal peers, but delisted KVUE is removed.
+    out=io.StringIO()
+    writer=csv.DictWriter(out,fieldnames=["Symbol","Security","GICS Sector","GICS Sub-Industry","CIK"])
+    writer.writeheader()
+    for ticker in tickers:
+        writer.writerow({"Symbol":ticker,"Security":ticker,"CIK":"1944048" if ticker=="KVUE" else ""})
+    source=out.getvalue()
+    result=sync(db,source,datetime(2026,11,3,tzinfo=timezone.utc))
+    assert result=={"active":499,"added":0,"removed":1}
+    assert db.companies["KVUE"]["active"] is False
+    assert db.companies["KVUE"]["is_sp500"] is False
+    assert db.memberships[-1]["effective_to"]=="2026-11-03"
+    assert sync(db,source,datetime(2026,11,3,tzinfo=timezone.utc))=={
+        "active":499,"added":0,"removed":0}
+    assert old["id"]==500
+
+
+def test_confirmed_kenvue_event_does_not_backdate_source_observations():
+    db=Db()
+    old=db.companies.pop("T499")
+    old.update(ticker="KVUE",cik="1944048",active=True)
+    db.companies["KVUE"]=old
+    out=io.StringIO()
+    writer=csv.DictWriter(out,fieldnames=["Symbol","Security","CIK"])
+    writer.writeheader()
+    for ticker in [f"T{i:03}" for i in range(499)]+["KVUE"]:
+        writer.writerow({"Symbol":ticker,"Security":ticker,
+                         "CIK":"1944048" if ticker=="KVUE" else ""})
+    sync(db,out.getvalue(),datetime(2026,11,1,tzinfo=timezone.utc))
+    assert db.companies["KVUE"]["is_sp500"] is True
+    assert db.companies["KVUE"]["active"] is True
+
+
+def test_kenvue_issuer_mismatch_blocks_membership_mutation():
+    db=Db()
+    old=db.companies.pop("T499")
+    old.update(ticker="KVUE",cik="unexpected",active=True)
+    db.companies["KVUE"]=old
+    with pytest.raises(ValueError,match="CIK"):
+        sync(db,csv_for([f"T{i:03}" for i in range(499)]+["KVUE"]),
+             datetime(2026,11,3,tzinfo=timezone.utc))
+    assert db.writes == 0

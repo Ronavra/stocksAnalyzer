@@ -17,7 +17,11 @@ from app.db.market_history import require_full_history
 
 def due(previous, now):
     local=now.astimezone(ZoneInfo("Asia/Jerusalem"))
-    saturday=(local-timedelta(days=(local.weekday()-5)%7)).replace(hour=14,minute=0,second=0,microsecond=0)
+    # Avoid restarting an unsuccessful Saturday validation before the market
+    # collector has had time to ingest the completed Friday NYSE session.
+    if local.weekday()==5 and local.hour<22:
+        return False
+    saturday=(local-timedelta(days=(local.weekday()-5)%7)).replace(hour=22,minute=0,second=0,microsecond=0)
     if saturday>local:
         saturday-=timedelta(days=7)
     return not any(r.get("status")=="success" and r.get("finished_at") and

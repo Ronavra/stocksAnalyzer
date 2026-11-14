@@ -65,11 +65,13 @@ def test_expired_validation_is_not_shown_as_still_running_or_validated():
 
 
 def test_research_week_catches_up_after_saturday_and_handles_dst():
-    now=datetime(2026,10,17,12,tzinfo=timezone.utc)
+    # 20:30 UTC is 23:30 Israel daylight time; the validation window now
+    # starts at 22:00, after the Friday market prices are available.
+    now=datetime(2026,10,17,20,30,tzinfo=timezone.utc)
     assert due([],now)
-    assert not due([{"status":"success","finished_at":"2026-10-17T11:30:00Z"}],now)
-    assert due([{"status":"error","finished_at":"2026-10-17T11:30:00Z"}],now)
-    assert due([{"status":"success","finished_at":"2026-10-10T12:00:00Z"}],now)
+    assert not due([{"status":"success","finished_at":"2026-10-17T20:20:00Z"}],now)
+    assert due([{"status":"error","finished_at":"2026-10-17T20:20:00Z"}],now)
+    assert due([{"status":"success","finished_at":"2026-10-10T20:20:00Z"}],now)
 
 
 def test_field_repair_prioritizes_core_gaps_and_keeps_reported_values_bound_to_filing():

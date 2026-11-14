@@ -25,7 +25,7 @@ def test_missing_failed_and_running_updates_are_overdue_after_noon():
 
 def test_israel_day_and_dst_are_used_for_schedule():
     # Winter UTC+2; summer UTC+3. UTC midnight is not the daily boundary.
-    for day,start,now in (("2026-10-05","2026-10-06T05:00:00Z","2026-10-06T06:00:00Z"),
+    for day,start,now in (("2026-10-06","2026-10-06T05:00:00Z","2026-10-06T06:00:00Z"),
                            ("2026-11-05","2026-11-05T06:00:00Z","2026-11-05T07:00:00Z")):
         result=schedule_status({"status":"success","started_at":start,"finished_at":now},at(now))
         assert result["scheduled_at"].startswith(day+"T08:00")

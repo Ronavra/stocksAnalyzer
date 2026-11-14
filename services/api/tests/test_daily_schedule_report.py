@@ -41,5 +41,5 @@ def test_monitor_skips_non_session_day_without_warning(monkeypatch,tmp_path,caps
         "overdue":False,"late_start":False,"start_delay_minutes":None,
         "completed_after_deadline":False})
     report.main(["--check-deadline"])
-    assert "No new NYSE session is due" in capsys.readouterr().out
+    assert '"market_session_due": false' in capsys.readouterr().out
     assert "No new NYSE session is due" in summary.read_text()

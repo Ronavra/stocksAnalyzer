@@ -8,7 +8,11 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "0 8 * * *"
+    # GitHub scheduled jobs can be delayed for hours. Start after the US
+    # close/17:00 New York data-ready buffer, leaving time before the
+    # existing 12:00 Israel completion SLA. This is a single run, not extra
+    # API usage that could exceed free provider quotas.
+    - cron: "0 2 * * *"
       timezone: "Asia/Jerusalem"
   push:
     branches: [main]

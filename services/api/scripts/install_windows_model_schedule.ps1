@@ -1,4 +1,6 @@
 # Weekly research uses the verified local archive and the existing .env.
+# Run AFTER Saturday market data collection (Friday NYSE close), rather
+# than at 14:00 when the daily price feed has repeatedly been incomplete.
 $ErrorActionPreference = "Stop"
 $ApiDirectory = Split-Path $PSScriptRoot -Parent
 $PythonPath = Join-Path $ApiDirectory ".venv\Scripts\python.exe"
@@ -6,8 +8,8 @@ if (-not (Test-Path $PythonPath)) { throw "Install the API virtual environment f
 if ([TimeZoneInfo]::Local.Id -ne "Israel Standard Time") { throw "Set the Windows time zone to Israel." }
 $ScriptPath = Join-Path $PSScriptRoot "run_local_model_validation.py"
 $TaskAction = New-ScheduledTaskAction -Execute $PythonPath -Argument "`"$ScriptPath`"" -WorkingDirectory $ApiDirectory
-$TaskTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At "14:00"
+$TaskTrigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday -At "22:00"
 $TaskSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 6)
 $TaskPrincipal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName "stocksAnalyzer Local Model Validation" -Action $TaskAction -Trigger $TaskTrigger -Settings $TaskSettings -Principal $TaskPrincipal -Description "Saturday 14:00 Israel time; full-history model validation from the verified local archive." -Force | Out-Null
-Write-Host "Installed Saturday model validation at 14:00 Israel time. The archive must be configured and this computer on with your account signed in."
+Register-ScheduledTask -TaskName "stocksAnalyzer Local Model Validation" -Action $TaskAction -Trigger $TaskTrigger -Settings $TaskSettings -Principal $TaskPrincipal -Description "Saturday 22:00 Israel time; full-history model validation from the verified local archive." -Force | Out-Null
+Write-Host "Installed Saturday model validation at 22:00 Israel time. The archive must be configured and this computer on with your account signed in."

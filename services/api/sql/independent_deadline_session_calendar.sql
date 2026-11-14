@@ -2,7 +2,7 @@
 -- trading day becomes due the next Israel morning. No new NYSE session is
 -- due on Israel Sunday/Monday or the morning after an NYSE holiday.
 create or replace function research_internal.is_nyse_trading_day(p_day date)
-returns boolean language plpgsql immutable set search_path = '' as $$
+returns boolean language plpgsql immutable set search_path = '' as $function$
 declare
  y integer := extract(year from p_day)::integer;
  jan1 date := make_date(y,1,1);
@@ -45,13 +45,13 @@ begin
  then return false; end if;
  if p_day=make_date(2025,1,9) then return false; end if;
  return true;
-end; $$;
+end; $function$;
 
 revoke all on function research_internal.is_nyse_trading_day(date)
  from public, anon, authenticated;
 
 create or replace function research_internal.check_daily_deadline(p_now timestamptz default now())
-returns jsonb language plpgsql set search_path = '' as $$
+returns jsonb language plpgsql set search_path = '' as $function$
 declare
  local_day date; deadline timestamptz; first_run timestamptz;
  completed timestamptz; result jsonb;
@@ -87,6 +87,6 @@ begin
      then 'No successful daily market refresh by 12:00 Asia/Jerusalem'
      else null end);
  return result;
-end; $$;
+end; $function$;
 
 -- Existing execute permissions for the independent checker are unchanged.

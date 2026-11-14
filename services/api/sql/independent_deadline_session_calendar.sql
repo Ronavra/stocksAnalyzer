@@ -45,7 +45,7 @@ begin
  then return false; end if;
  if p_day=make_date(2025,1,9) then return false; end if;
  return true;
-end $$;
+end; $;
 
 revoke all on function research_internal.is_nyse_trading_day(date)
  from public, anon, authenticated;
@@ -87,6 +87,6 @@ begin
      then 'No successful daily market refresh by 12:00 Asia/Jerusalem'
      else null end);
  return result;
-end $$;
+end; $;
 
 -- Existing execute permissions for the independent checker are unchanged.

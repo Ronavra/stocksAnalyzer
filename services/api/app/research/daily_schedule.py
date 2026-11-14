@@ -1,6 +1,8 @@
 """Report daily timeliness separately from successful data validation."""
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+from app.market_calendar import NY, latest_completed_session
 
 ISRAEL=ZoneInfo("Asia/Jerusalem")
 
@@ -9,6 +11,13 @@ def schedule_status(run, now=None):
     now=(now or datetime.now(timezone.utc)).astimezone(ISRAEL)
     due=datetime.combine(now.date(),time(8),tzinfo=ISRAEL)
     deadline=datetime.combine(now.date(),time(12),tzinfo=ISRAEL)
+    # At Israel noon, the latest completed NYSE session is the one we can
+    # legitimately require in the price database. Sundays, Mondays and US
+    # exchange holidays often have no *new* session relative to yesterday.
+    # Monitor those separately from a missed refresh deadline.
+    expected=latest_completed_session(deadline.astimezone(NY))
+    yesterday=latest_completed_session((deadline-timedelta(days=1)).astimezone(NY))
+    market_session_due=expected!=yesterday
     run=run or {}
     def timestamp(key):
         try:
@@ -24,7 +33,8 @@ def schedule_status(run, now=None):
     completed=run.get("status")=="success" and started is not None and finished is not None and finished>=started
     delay=max(0,int((started-due).total_seconds()/60)) if started else None
     return {"timezone":"Asia/Jerusalem","time":"08:00","scheduled_at":due.isoformat(),
+            "market_session_due":market_session_due,"expected_market_date":expected.isoformat(),
             "completion_deadline":deadline.isoformat(),"started_at":started.isoformat() if started else None,
-            "start_delay_minutes":delay,"late_start":delay is not None and delay>60,
-            "completed_after_deadline":bool(completed and finished>deadline),
-            "overdue":now>=deadline and not completed,"exact_start_guaranteed":False}
+            "start_delay_minutes":delay,"late_start":market_session_due and delay is not None and delay>60,
+            "completed_after_deadline":bool(market_session_due and completed and finished>deadline),
+            "overdue":market_session_due and now>=deadline and not completed,"exact_start_guaranteed":False}

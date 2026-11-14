@@ -22,13 +22,15 @@ def main(argv=None):
           .eq("pipeline","daily_market_research").order("started_at",desc=True).limit(1).execute().data or [])
     status=schedule_status(rows[0] if rows else None)
     print(json.dumps(status))
-    if status["overdue"]:
+    if not status["market_session_due"]:
+        message=f"No new NYSE session is due today (latest session: {status['expected_market_date']}); no daily deadline alert."
+    elif status["overdue"]:
         message="Daily market update has not completed by 12:00 Asia/Jerusalem."
     elif status["late_start"] or status["completed_after_deadline"]:
         message=f"Daily market update started {status['start_delay_minutes']} minutes after 08:00 Asia/Jerusalem; completed after noon: {status['completed_after_deadline']}."
     else:
         message="Daily market update timing is within the monitoring thresholds."
-    if status["overdue"] or status["late_start"] or status["completed_after_deadline"]:
+    if status["market_session_due"] and (status["overdue"] or status["late_start"] or status["completed_after_deadline"]):
         print("::warning::"+message)
     summary=os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
